@@ -23,8 +23,9 @@ void LineByteIndex::rebuild(const Buffer& buffer)
 
 uint32_t LineByteIndex::byte_offset(BufferCoord coord) const
 {
-    const int line = (int)coord.line;
-    kak_assert(line >= 0 and line < (int)m_line_start_bytes.size());
+    if (m_line_start_bytes.empty())
+        return 0;
+    int line = std::min((int)coord.line, (int)m_line_start_bytes.size() - 1);
     return m_line_start_bytes[line] + (uint32_t)(int)coord.column;
 }
 
@@ -153,7 +154,8 @@ void SyntaxTree::full_parse(const Buffer& buffer)
         ts_tree_delete(m_tree);
 
     m_tree = ts_parser_parse(m_parser, nullptr, input);
-    m_timestamp = buffer.timestamp();
+    if (m_tree)
+        m_timestamp = buffer.timestamp();
 }
 
 SyntaxTree::SyntaxTree(const Buffer& buffer, const LanguageConfig* config)

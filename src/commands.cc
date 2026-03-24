@@ -2882,6 +2882,11 @@ static Selection node_to_selection(const Buffer& buffer, TSNode node)
     BufferCoord begin{LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}};
     BufferCoord end{LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}};
 
+    // Clamp to buffer bounds — tree-sitter ERROR nodes can have unexpected coordinates
+    auto back = buffer.back_coord();
+    begin = std::min(begin, back);
+    end = std::min(end, back);
+
     // Kakoune selections are inclusive on both ends,
     // tree-sitter end is exclusive, so back up one char
     if (end > begin)
@@ -2923,13 +2928,14 @@ const CommandDesc tree_select_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
+        TSQueryCursor* qcursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(qcursor, 256);
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
-            TSQueryCursor* qcursor = ts_query_cursor_new();
-            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -2961,13 +2967,13 @@ const CommandDesc tree_select_cmd = {
                 }
             }
 
-            ts_query_cursor_delete(qcursor);
-
             if (found)
                 new_selections.push_back(node_to_selection(buffer, best_node));
             else
                 new_selections.push_back(sel);
         }
+
+        ts_query_cursor_delete(qcursor);
 
         selections.set(std::move(new_selections), selections.main_index());
     }
@@ -3001,13 +3007,14 @@ const CommandDesc tree_select_next_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
+        TSQueryCursor* qcursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(qcursor, 256);
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
-            TSQueryCursor* qcursor = ts_query_cursor_new();
-            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -3034,13 +3041,13 @@ const CommandDesc tree_select_next_cmd = {
                 }
             }
 
-            ts_query_cursor_delete(qcursor);
-
             if (found)
                 new_selections.push_back(node_to_selection(buffer, best_node));
             else
                 new_selections.push_back(sel);
         }
+
+        ts_query_cursor_delete(qcursor);
 
         selections.set(std::move(new_selections), selections.main_index());
     }
@@ -3074,13 +3081,14 @@ const CommandDesc tree_select_prev_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
+        TSQueryCursor* qcursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(qcursor, 256);
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
-            TSQueryCursor* qcursor = ts_query_cursor_new();
-            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -3107,13 +3115,13 @@ const CommandDesc tree_select_prev_cmd = {
                 }
             }
 
-            ts_query_cursor_delete(qcursor);
-
             if (found)
                 new_selections.push_back(node_to_selection(buffer, best_node));
             else
                 new_selections.push_back(sel);
         }
+
+        ts_query_cursor_delete(qcursor);
 
         selections.set(std::move(new_selections), selections.main_index());
     }
@@ -3318,7 +3326,12 @@ const CommandDesc tree_select_node_cmd = {
 
 // Expansion history stack — stores previous selections so tree-shrink
 // can retrace the exact path of tree-expand.
-static Vector<Vector<Selection, MemoryDomain::Selections>, MemoryDomain::Selections> expand_history;
+struct ExpandHistoryEntry
+{
+    const Buffer* buffer;
+    Vector<Selection, MemoryDomain::Selections> selections;
+};
+static Vector<ExpandHistoryEntry> expand_history;
 
 const CommandDesc tree_expand_cmd = {
     "tree-expand",
@@ -3340,7 +3353,7 @@ const CommandDesc tree_expand_cmd = {
         Vector<Selection, MemoryDomain::Selections> saved;
         for (auto& sel : selections)
             saved.push_back(sel);
-        expand_history.push_back(std::move(saved));
+        expand_history.push_back({&buffer, std::move(saved)});
 
         // Cap history depth
         if (expand_history.size() > 32)
@@ -3388,8 +3401,14 @@ const CommandDesc tree_shrink_cmd = {
         if (expand_history.empty())
             throw runtime_error("no tree-expand history to shrink back to");
 
+        if (expand_history.back().buffer != &context.buffer())
+        {
+            expand_history.clear();
+            throw runtime_error("expand history invalid — buffer changed");
+        }
+
         auto& selections = context.selections();
-        auto restored = std::move(expand_history.back());
+        auto restored = std::move(expand_history.back().selections);
         expand_history.pop_back();
 
         if (not restored.empty())
@@ -3547,10 +3566,15 @@ const CommandDesc tree_fold_cmd = {
         auto last_line = LineCount{(int)end.row};
 
         auto first_line_len = buffer[first_line].length();
+        auto fold_end_line_len = buffer[last_line - 1].length();
+
+        if (first_line_len == 0 or fold_end_line_len == 0)
+            throw runtime_error("cannot fold — empty boundary lines");
+
         // fold_begin: last char of the opening line (before newline)
         BufferCoord fold_begin{first_line, first_line_len - 1};
         // fold_end: end of the line before the closing line
-        BufferCoord fold_end{last_line - 1, buffer[last_line - 1].length() - 1};
+        BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
 
         // Build the range-spec string: "line.col,line.col|replacement"
         // Coordinates are 1-based for option_from_string

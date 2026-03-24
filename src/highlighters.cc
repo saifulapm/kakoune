@@ -2458,7 +2458,8 @@ static String ts_node_text(TSNode node, const Buffer& buffer)
 // local definition within the scope chain.  These positions will get the
 // ts_variable face during highlighting.
 static HashSet<uint32_t> build_local_references(
-    TSQuery* locals_query, TSNode root, const Buffer& buffer)
+    TSQuery* locals_query, TSNode root, const Buffer& buffer,
+    uint32_t start_byte = 0, uint32_t end_byte = UINT32_MAX)
 {
     HashSet<uint32_t> local_ref_positions;
 
@@ -2502,6 +2503,7 @@ static HashSet<uint32_t> build_local_references(
 
     TSQueryCursor* cursor = ts_query_cursor_new();
     ts_query_cursor_set_match_limit(cursor, 256);
+    ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
     ts_query_cursor_exec(cursor, locals_query, root);
 
     TSQueryMatch match;
@@ -2694,8 +2696,9 @@ private:
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
+        auto clamped_end = std::min(display_range.end, buffer.back_coord());
         uint32_t start_byte = byte_index.byte_offset(display_range.begin);
-        uint32_t end_byte = byte_index.byte_offset(display_range.end);
+        uint32_t end_byte = byte_index.byte_offset(clamped_end);
 
         // With UniquePtr-based storage, LanguageConfig pointers are stable
         // across HashMap reallocation — safe to use const references.
@@ -2707,7 +2710,7 @@ private:
         if (config->locals_query())
             local_refs = build_local_references(config->locals_query(),
                                                 ts_tree_root_node(syntax_tree.tree()),
-                                                buffer);
+                                                buffer, start_byte, end_byte);
 
         // Highlight root layer
         run_highlights(root_query,
@@ -2733,7 +2736,7 @@ private:
             if (layer.config->locals_query())
                 inj_local_refs = build_local_references(layer.config->locals_query(),
                                                         ts_tree_root_node(layer.tree),
-                                                        buffer);
+                                                        buffer, start_byte, end_byte);
 
             run_highlights(inj_query,
                            ts_tree_root_node(layer.tree),
@@ -2808,8 +2811,9 @@ private:
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
+        auto clamped_end = std::min(display_range.end, buffer.back_coord());
         uint32_t vis_start_byte = byte_index.byte_offset(display_range.begin);
-        uint32_t vis_end_byte = byte_index.byte_offset(display_range.end);
+        uint32_t vis_end_byte = byte_index.byte_offset(clamped_end);
 
         auto& faces = context.context.faces();
 
@@ -2910,8 +2914,12 @@ private:
                 color_depth = nesting;
             }
 
+            static constexpr const char* rainbow_faces[] = {
+                "ts_rainbow_1", "ts_rainbow_2", "ts_rainbow_3",
+                "ts_rainbow_4", "ts_rainbow_5", "ts_rainbow_6"
+            };
             int color_index = color_depth % 6;
-            String face_name = format("ts_rainbow_{}", color_index + 1);
+            StringView face_name{rainbow_faces[color_index]};
 
             try
             {
