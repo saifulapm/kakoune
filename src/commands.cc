@@ -3568,13 +3568,13 @@ const CommandDesc tree_fold_cmd = {
         // fold_end: end of the line before the closing line
         BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
 
-        // Build the range-spec string: "line.col,line.col|replacement"
-        // Coordinates are 1-based for option_from_string
-        auto range_str = format("{}.{},{}.{}|{{+comment@Default}}{{  ...  }}",
-                                fold_begin.line + 1, fold_begin.column + 1,
-                                fold_end.line + 1, fold_end.column + 1);
-
-        auto timestamp = format("{}", buffer.timestamp());
+        // Build the range-spec string: "line.col,line.col|{face}text"
+        // Coordinates are 1-based for option parsing
+        // Use String concatenation to avoid format() interpreting {} as args
+        String range_str = format("{}.{},{}.{}|",
+                                  fold_begin.line + 1, fold_begin.column + 1,
+                                  fold_end.line + 1, fold_end.column + 1);
+        range_str += "{comment}  ...  ";
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
         opt.add_from_strings(ConstArrayView<String>{range_str});
@@ -3699,9 +3699,11 @@ const CommandDesc tree_fold_all_cmd = {
                 BufferCoord fold_begin{first_line, first_line_len - 1};
                 BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
 
-                range_strs.push_back(format("{}.{},{}.{}|{{+comment@Default}}{{  ...  }}",
-                                            fold_begin.line + 1, fold_begin.column + 1,
-                                            fold_end.line + 1, fold_end.column + 1));
+                String rs = format("{}.{},{}.{}|",
+                                   fold_begin.line + 1, fold_begin.column + 1,
+                                   fold_end.line + 1, fold_end.column + 1);
+                rs += "{comment}  ...  ";
+                range_strs.push_back(std::move(rs));
             }
         }
 
@@ -3746,7 +3748,7 @@ const CommandDesc tree_update_context_cmd = {
         auto& buffer = context.buffer();
         if (not has_syntax_tree(buffer))
         {
-            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
+            context.options()["tree_context"].set_from_strings(ConstArrayView<String>{""});
             return;
         }
 
@@ -3755,7 +3757,7 @@ const CommandDesc tree_update_context_cmd = {
 
         if (not syntax_tree.is_valid())
         {
-            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
+            context.options()["tree_context"].set_from_strings(ConstArrayView<String>{""});
             return;
         }
 
@@ -3827,7 +3829,7 @@ const CommandDesc tree_update_context_cmd = {
             }
         }
 
-        context.options().get_local_option("tree_context").set_from_strings(
+        context.options()["tree_context"].set_from_strings(
             ConstArrayView<String>{context_str});
     }
 };

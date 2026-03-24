@@ -52,10 +52,10 @@ set-face global ts_rainbow_5 magenta
 set-face global ts_rainbow_6 cyan
 
 # Code folding support
-declare-option -hidden range-specs tree_sitter_folds
+declare-option range-specs tree_sitter_folds
 
 # Sticky context: shows enclosing function/class when scrolled past
-declare-option -hidden str tree_context ""
+declare-option str tree_context ""
 
 # Auto-enable tree-sitter highlighting on filetype change
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
