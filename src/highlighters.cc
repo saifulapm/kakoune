@@ -2603,6 +2603,9 @@ struct TreeSitterHighlighter : Highlighter
             ts_query_cursor_delete(m_cursor);
     }
 
+    TreeSitterHighlighter(const TreeSitterHighlighter&) = delete;
+    TreeSitterHighlighter& operator=(const TreeSitterHighlighter&) = delete;
+
     static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
     {
         return make_unique_ptr<TreeSitterHighlighter>();
@@ -2832,6 +2835,7 @@ private:
         Vector<BracketInfo, MemoryDomain::Highlight> brackets;
 
         TSTreeCursor cursor = ts_tree_cursor_new(ts_tree_root_node(syntax_tree.tree()));
+        OnScopeEnd cursor_cleanup{[&]{ ts_tree_cursor_delete(&cursor); }};
 
         int tree_depth = 0;
         bool descended = true;
@@ -2895,8 +2899,6 @@ private:
                 break;
             }
         } while (true);
-
-        ts_tree_cursor_delete(&cursor);
 
         // Now color brackets by nesting depth.
         // Walk through collected brackets in order, track nesting with a counter.
