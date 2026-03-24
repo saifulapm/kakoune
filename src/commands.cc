@@ -3376,41 +3376,51 @@ const CommandDesc tree_shrink_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
+        auto& byte_index = syntax_tree.byte_index();
         auto& selections = context.selections();
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
         for (auto& sel : selections)
         {
-            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            // Find the node spanning the current selection using byte range
+            uint32_t sel_start = byte_index.byte_offset(sel.min());
+            uint32_t sel_end = byte_index.byte_offset(sel.max());
+
+            TSNode node = ts_node_named_descendant_for_byte_range(
+                ts_tree_root_node(syntax_tree.tree()), sel_start, sel_end);
+
             if (ts_node_is_null(node))
             {
                 new_selections.push_back(sel);
                 continue;
             }
 
-            // Walk up to find the node that matches or contains the selection
-            auto node_sel = node_to_selection(buffer, node);
+            // Walk up until we find a node that fully covers the selection
             while (not ts_node_is_null(node) and
-                   (node_sel.min() > sel.min() or node_sel.max() < sel.max()))
+                   (ts_node_start_byte(node) > sel_start or
+                    ts_node_end_byte(node) < sel_end))
             {
                 TSNode parent = ts_node_parent(node);
                 if (ts_node_is_null(parent))
                     break;
                 node = parent;
-                node_sel = node_to_selection(buffer, node);
             }
 
-            // Now find the first named child containing the cursor
-            BufferCoord cursor = sel.cursor();
+            // Find the first named child that contains the cursor
+            uint32_t cursor_byte = byte_index.byte_offset(sel.cursor());
             bool found_child = false;
             uint32_t child_count = ts_node_named_child_count(node);
             for (uint32_t i = 0; i < child_count; ++i)
             {
                 TSNode child = ts_node_named_child(node, i);
-                auto child_sel = node_to_selection(buffer, child);
-                if (child_sel.min() <= cursor and cursor <= child_sel.max())
+                uint32_t child_start = ts_node_start_byte(child);
+                uint32_t child_end = ts_node_end_byte(child);
+
+                // Child must contain cursor AND be strictly smaller than current node
+                if (child_start <= cursor_byte and cursor_byte < child_end and
+                    (child_end - child_start) < (ts_node_end_byte(node) - ts_node_start_byte(node)))
                 {
-                    new_selections.push_back(child_sel);
+                    new_selections.push_back(node_to_selection(buffer, child));
                     found_child = true;
                     break;
                 }
