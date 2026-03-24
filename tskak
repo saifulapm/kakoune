@@ -1,0 +1,2 @@
+#!/bin/sh
+KAKOUNE_RUNTIME="$(dirname "$0")/share/kak" exec "$(dirname "$0")/src/kak" "$@"

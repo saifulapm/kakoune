@@ -2478,10 +2478,7 @@ private:
         auto& syntax_tree = get_syntax_tree(buffer);
         syntax_tree.update(buffer);
 
-        if (not syntax_tree.is_valid())
-            return;
-
-        if (not m_cursor)
+        if (not syntax_tree.is_valid() or not m_cursor)
             return;
 
         const auto& byte_index = syntax_tree.byte_index();
@@ -2491,8 +2488,9 @@ private:
         ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
 
         TSNode root = ts_tree_root_node(syntax_tree.tree());
-        ts_query_cursor_exec(m_cursor, syntax_tree.highlight_query(), root);
+        ts_query_cursor_exec(m_cursor, config->highlight_query(), root);
 
+        int match_count = 0;
         TSQueryMatch match;
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
@@ -2512,9 +2510,13 @@ private:
             BufferCoord end_coord{LineCount{(int)end_point.row},
                                   ByteCount{(int)end_point.column}};
 
-            Face face = context.context.faces()[face_name];
-            highlight_range(display_buffer, begin_coord, end_coord, false,
-                apply_face(face));
+            try
+            {
+                Face face = context.context.faces()[face_name];
+                highlight_range(display_buffer, begin_coord, end_coord, false,
+                    apply_face(face));
+            }
+            catch (runtime_error&) {}
         }
 
         // Detect and highlight injection layers
