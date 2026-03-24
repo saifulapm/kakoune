@@ -2501,7 +2501,7 @@ static HashSet<uint32_t> build_local_references(
     };
     Vector<RefInfo> refs;
 
-    TSQueryCursor* cursor = ts_query_cursor_new();
+    QueryCursorGuard cursor;
     ts_query_cursor_set_match_limit(cursor, 256);
     ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
     ts_query_cursor_exec(cursor, locals_query, root);
@@ -2544,7 +2544,6 @@ static HashSet<uint32_t> build_local_references(
             }
         }
     }
-    ts_query_cursor_delete(cursor);
 
     // Sort scopes by start_byte ascending, then by end_byte descending (wider first)
     std::sort(scopes.begin(), scopes.end(), [](const ScopeInfo& a, const ScopeInfo& b) {
@@ -2611,6 +2610,8 @@ struct TreeSitterHighlighter : Highlighter
 
 private:
     TSQueryCursor* m_cursor;
+    HashSet<uint32_t> m_local_refs;
+    size_t m_local_refs_timestamp = 0;
 
     // Run a highlight query and apply faces to the display buffer
     void run_highlights(TSQuery* query, TSNode root,
@@ -2706,18 +2707,21 @@ private:
         const auto& root_faces = config->capture_faces();
 
         // Build local variable reference positions for scope-aware highlighting
-        HashSet<uint32_t> local_refs;
-        if (config->locals_query())
-            local_refs = build_local_references(config->locals_query(),
-                                                ts_tree_root_node(syntax_tree.tree()),
-                                                buffer, start_byte, end_byte);
+        // (cached — only recomputed when tree changes)
+        if (config->locals_query() and syntax_tree.timestamp() != m_local_refs_timestamp)
+        {
+            m_local_refs = build_local_references(config->locals_query(),
+                                                  ts_tree_root_node(syntax_tree.tree()),
+                                                  buffer, start_byte, end_byte);
+            m_local_refs_timestamp = syntax_tree.timestamp();
+        }
 
         // Highlight root layer
         run_highlights(root_query,
                        ts_tree_root_node(syntax_tree.tree()),
                        root_faces,
                        start_byte, end_byte,
-                       local_refs,
+                       m_local_refs,
                        context, display_buffer);
 
         // Detect and highlight injection layers

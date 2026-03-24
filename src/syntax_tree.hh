@@ -13,6 +13,17 @@ namespace Kakoune
 
 class LanguageConfig;
 
+struct QueryCursorGuard
+{
+    TSQueryCursor* cursor;
+    QueryCursorGuard() : cursor(ts_query_cursor_new()) {}
+    ~QueryCursorGuard() { if (cursor) ts_query_cursor_delete(cursor); }
+    QueryCursorGuard(const QueryCursorGuard&) = delete;
+    QueryCursorGuard& operator=(const QueryCursorGuard&) = delete;
+    operator TSQueryCursor*() { return cursor; }
+    TSQueryCursor* operator->() { return cursor; }
+};
+
 struct InjectionLayer
 {
     TSParser* parser = nullptr;
@@ -37,9 +48,6 @@ struct LineByteIndex
 private:
     Vector<uint32_t, MemoryDomain::Highlight> m_line_start_bytes;
 };
-
-TSInputEdit make_ts_input_edit(const LineByteIndex& index,
-                               const Buffer::Change& change);
 
 class SyntaxTree
 {

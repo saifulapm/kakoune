@@ -29,51 +29,6 @@ uint32_t LineByteIndex::byte_offset(BufferCoord coord) const
     return m_line_start_bytes[line] + (uint32_t)(int)coord.column;
 }
 
-TSInputEdit make_ts_input_edit(const LineByteIndex& index,
-                               const Buffer::Change& change)
-{
-    const TSPoint start_point = {(uint32_t)(int)change.begin.line,
-                                 (uint32_t)(int)change.begin.column};
-    const uint32_t start_byte = index.byte_offset(change.begin);
-
-    TSInputEdit edit{};
-    edit.start_byte = start_byte;
-    edit.start_point = start_point;
-
-    if (change.type == Buffer::Change::Insert)
-    {
-        // Insert: old_end == start (nothing was removed), new_end = change.end
-        edit.old_end_byte = start_byte;
-        edit.old_end_point = start_point;
-
-        // change.end is in post-insert coordinates — the byte index is stale
-        // for lines that were pushed down.  Compute new_end_byte from the
-        // change extent instead of looking it up in the pre-change index.
-        uint32_t inserted_lines = (uint32_t)(int)change.end.line
-                                - (uint32_t)(int)change.begin.line;
-        if (inserted_lines == 0)
-            edit.new_end_byte = start_byte
-                              + ((uint32_t)(int)change.end.column
-                               - (uint32_t)(int)change.begin.column);
-        else
-            edit.new_end_byte = UINT32_MAX;  // sentinel — caller will full-reparse
-
-        edit.new_end_point = {(uint32_t)(int)change.end.line,
-                              (uint32_t)(int)change.end.column};
-    }
-    else
-    {
-        // Erase: old_end = change.end (content was removed), new_end == start
-        edit.old_end_byte = index.byte_offset(change.end);
-        edit.old_end_point = {(uint32_t)(int)change.end.line,
-                              (uint32_t)(int)change.end.column};
-        edit.new_end_byte = start_byte;
-        edit.new_end_point = start_point;
-    }
-
-    return edit;
-}
-
 static const char* ts_input_read(void* payload, uint32_t byte_index,
                                  TSPoint position, uint32_t* bytes_read)
 {
@@ -241,70 +196,56 @@ void SyntaxTree::update(const Buffer& buffer)
 
     auto changes = buffer.changes_since(m_timestamp);
 
-    // Apply all edits to the tree. Tree-sitter's ts_tree_edit needs
-    // byte offsets and TSPoints. TSPoints map directly from BufferCoord.
-    // For byte offsets: the first change can use the pre-change byte index.
-    // Subsequent changes use approximate byte offsets computed by tracking
-    // a cumulative adjustment. Tree-sitter tolerates approximate byte
-    // offsets — they're optimization hints, not correctness requirements.
-    // The key requirement is that TSPoints are exact.
+    // Check if all changes are single-line. Single-line changes (the common
+    // case for typing, backspace, single-line paste) allow exact byte offset
+    // computation. Multi-line changes require falling back to full reparse
+    // because we cannot reliably compute byte offsets without a rope.
+    bool all_single_line = true;
+    for (auto& change : changes)
+    {
+        if (change.begin.line != change.end.line)
+        {
+            all_single_line = false;
+            break;
+        }
+    }
 
+    if (not all_single_line)
+    {
+        full_parse(buffer);
+        return;
+    }
+
+    // All single-line: apply with exact byte offsets
     int32_t byte_adjustment = 0;
 
     for (auto& change : changes)
     {
         TSInputEdit edit{};
+        uint32_t raw_start = m_byte_index.byte_offset(change.begin);
+        edit.start_byte = (uint32_t)((int32_t)raw_start + byte_adjustment);
         edit.start_point = {(uint32_t)(int)change.begin.line,
                             (uint32_t)(int)change.begin.column};
 
-        // Compute start_byte from the original byte index + cumulative adjustment
-        uint32_t raw_start = m_byte_index.byte_offset(change.begin);
-        edit.start_byte = (uint32_t)((int32_t)raw_start + byte_adjustment);
-
         if (change.type == Buffer::Change::Insert)
         {
+            uint32_t inserted = (uint32_t)((int)change.end.column - (int)change.begin.column);
             edit.old_end_byte = edit.start_byte;
             edit.old_end_point = edit.start_point;
+            edit.new_end_byte = edit.start_byte + inserted;
             edit.new_end_point = {(uint32_t)(int)change.end.line,
                                   (uint32_t)(int)change.end.column};
-
-            // Estimate inserted bytes from coordinate change
-            if (change.end.line == change.begin.line)
-            {
-                uint32_t inserted = (uint32_t)((int)change.end.column - (int)change.begin.column);
-                edit.new_end_byte = edit.start_byte + inserted;
-                byte_adjustment += (int32_t)inserted;
-            }
-            else
-            {
-                // Multi-line insert: estimate byte count
-                // Use column of end line as a rough estimate for the last line
-                uint32_t estimated = (uint32_t)(int)change.end.column +
-                    ((uint32_t)((int)change.end.line - (int)change.begin.line)) * 40;
-                edit.new_end_byte = edit.start_byte + estimated;
-                byte_adjustment += (int32_t)estimated;
-            }
+            byte_adjustment += (int32_t)inserted;
         }
         else // Erase
         {
-            edit.new_end_byte = edit.start_byte;
-            edit.new_end_point = edit.start_point;
+            uint32_t erased = (uint32_t)((int)change.end.column - (int)change.begin.column);
+            edit.old_end_byte = edit.start_byte + erased;
             edit.old_end_point = {(uint32_t)(int)change.end.line,
                                   (uint32_t)(int)change.end.column};
-
-            if (change.end.line == change.begin.line)
-            {
-                uint32_t erased = (uint32_t)((int)change.end.column - (int)change.begin.column);
-                edit.old_end_byte = edit.start_byte + erased;
-                byte_adjustment -= (int32_t)erased;
-            }
-            else
-            {
-                uint32_t estimated = (uint32_t)(int)change.end.column +
-                    ((uint32_t)((int)change.end.line - (int)change.begin.line)) * 40;
-                edit.old_end_byte = edit.start_byte + estimated;
-                byte_adjustment -= (int32_t)estimated;
-            }
+            edit.new_end_byte = edit.start_byte;
+            edit.new_end_point = edit.start_point;
+            byte_adjustment -= (int32_t)erased;
         }
 
         ts_tree_edit(m_tree, &edit);
@@ -324,9 +265,8 @@ void SyntaxTree::update(const Buffer& buffer)
     {
         ts_tree_delete(m_tree);
         m_tree = new_tree;
+        m_timestamp = buffer.timestamp();
     }
-
-    m_timestamp = buffer.timestamp();
 }
 
 static String node_text(TSNode node, const Buffer& buffer)
@@ -376,8 +316,8 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
     Vector<PendingInjection, MemoryDomain::Highlight> pending;
 
     {
-        TSQueryCursor* cursor = ts_query_cursor_new();
-        if (not cursor)
+        QueryCursorGuard cursor;
+        if (not cursor.cursor)
             return;
 
         ts_query_cursor_set_match_limit(cursor, 256);
@@ -464,7 +404,6 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
             }
         }
 
-        ts_query_cursor_delete(cursor);
     }
 
     // Phase 2: Now that the query cursor is done, load languages and create layers.

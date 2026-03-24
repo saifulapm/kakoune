@@ -2928,7 +2928,7 @@ const CommandDesc tree_select_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
-        TSQueryCursor* qcursor = ts_query_cursor_new();
+        QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
         for (auto& sel : selections)
@@ -2973,8 +2973,6 @@ const CommandDesc tree_select_cmd = {
                 new_selections.push_back(sel);
         }
 
-        ts_query_cursor_delete(qcursor);
-
         selections.set(std::move(new_selections), selections.main_index());
     }
 };
@@ -3007,7 +3005,7 @@ const CommandDesc tree_select_next_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
-        TSQueryCursor* qcursor = ts_query_cursor_new();
+        QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
         for (auto& sel : selections)
@@ -3047,8 +3045,6 @@ const CommandDesc tree_select_next_cmd = {
                 new_selections.push_back(sel);
         }
 
-        ts_query_cursor_delete(qcursor);
-
         selections.set(std::move(new_selections), selections.main_index());
     }
 };
@@ -3081,7 +3077,7 @@ const CommandDesc tree_select_prev_cmd = {
 
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
-        TSQueryCursor* qcursor = ts_query_cursor_new();
+        QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
         for (auto& sel : selections)
@@ -3120,8 +3116,6 @@ const CommandDesc tree_select_prev_cmd = {
             else
                 new_selections.push_back(sel);
         }
-
-        ts_query_cursor_delete(qcursor);
 
         selections.set(std::move(new_selections), selections.main_index());
     }
@@ -3328,7 +3322,7 @@ const CommandDesc tree_select_node_cmd = {
 // can retrace the exact path of tree-expand.
 struct ExpandHistoryEntry
 {
-    const Buffer* buffer;
+    String buffer_name;
     Vector<Selection, MemoryDomain::Selections> selections;
 };
 static Vector<ExpandHistoryEntry> expand_history;
@@ -3353,7 +3347,7 @@ const CommandDesc tree_expand_cmd = {
         Vector<Selection, MemoryDomain::Selections> saved;
         for (auto& sel : selections)
             saved.push_back(sel);
-        expand_history.push_back({&buffer, std::move(saved)});
+        expand_history.push_back({buffer.name(), std::move(saved)});
 
         // Cap history depth
         if (expand_history.size() > 32)
@@ -3401,7 +3395,7 @@ const CommandDesc tree_shrink_cmd = {
         if (expand_history.empty())
             throw runtime_error("no tree-expand history to shrink back to");
 
-        if (expand_history.back().buffer != &context.buffer())
+        if (expand_history.back().buffer_name != context.buffer().name())
         {
             expand_history.clear();
             throw runtime_error("expand history invalid — buffer changed");
@@ -3439,7 +3433,7 @@ const CommandDesc tree_select_all_cmd = {
         if (target == UINT32_MAX)
             throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
 
-        TSQueryCursor* cursor = ts_query_cursor_new();
+        QueryCursorGuard cursor;
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3454,7 +3448,6 @@ const CommandDesc tree_select_all_cmd = {
                 new_selections.push_back(node_to_selection(buffer, match.captures[c].node));
             }
         }
-        ts_query_cursor_delete(cursor);
 
         if (new_selections.empty())
             throw runtime_error(format("no '{}' found in buffer", object_name));
@@ -3487,7 +3480,7 @@ const CommandDesc tree_filter_cmd = {
             throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
 
         // Collect all object ranges
-        TSQueryCursor* cursor = ts_query_cursor_new();
+        QueryCursorGuard cursor;
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3503,7 +3496,6 @@ const CommandDesc tree_filter_cmd = {
                 object_ranges.push_back({sel.min(), sel.max()});
             }
         }
-        ts_query_cursor_delete(cursor);
 
         // Filter selections: keep only those contained in an object range
         auto& selections = context.selections();
@@ -3674,7 +3666,7 @@ const CommandDesc tree_fold_all_cmd = {
         if (target == UINT32_MAX)
             throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
 
-        TSQueryCursor* cursor = ts_query_cursor_new();
+        QueryCursorGuard cursor;
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3699,15 +3691,19 @@ const CommandDesc tree_fold_all_cmd = {
                 auto last_line = LineCount{(int)end.row};
 
                 auto first_line_len = buffer[first_line].length();
+                auto fold_end_line_len = buffer[last_line - 1].length();
+
+                if (first_line_len == 0 or fold_end_line_len == 0)
+                    continue;
+
                 BufferCoord fold_begin{first_line, first_line_len - 1};
-                BufferCoord fold_end{last_line - 1, buffer[last_line - 1].length() - 1};
+                BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
 
                 range_strs.push_back(format("{}.{},{}.{}|{{+comment@Default}}{{  ...  }}",
                                             fold_begin.line + 1, fold_begin.column + 1,
                                             fold_end.line + 1, fold_end.column + 1));
             }
         }
-        ts_query_cursor_delete(cursor);
 
         if (range_strs.empty())
             throw runtime_error(format("no foldable '{}' found in buffer", object_name));
@@ -3777,7 +3773,7 @@ const CommandDesc tree_update_context_cmd = {
 
             // Run the query and find the innermost function/class that
             // starts before the first visible line
-            TSQueryCursor* qcursor = ts_query_cursor_new();
+            QueryCursorGuard qcursor;
             ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3809,7 +3805,6 @@ const CommandDesc tree_update_context_cmd = {
                     }
                 }
             }
-            ts_query_cursor_delete(qcursor);
 
             if (found)
             {
@@ -3862,7 +3857,7 @@ const CommandDesc tree_indent_cmd = {
         uint32_t outdent_capture = find_capture_index(query, "outdent");
 
         // Execute indent query on full tree
-        TSQueryCursor* cursor = ts_query_cursor_new();
+        QueryCursorGuard cursor;
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3892,8 +3887,6 @@ const CommandDesc tree_indent_cmd = {
                     indent_delta[(int)start.row]--;
             }
         }
-
-        ts_query_cursor_delete(cursor);
 
         // Apply indentation to selected lines
         ColumnCount tabstop = context.options()["tabstop"].get<int>();
@@ -3996,7 +3989,7 @@ const CommandDesc tree_indent_newline_cmd = {
             indent_width = tabstop;
 
         // Run indent query over the tree and compute delta for cursor line
-        TSQueryCursor* qcursor = ts_query_cursor_new();
+        QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
         // Restrict query to relevant range (previous line through current line)
         uint32_t prev_row = (uint32_t)(int)prev_line;
@@ -4031,8 +4024,6 @@ const CommandDesc tree_indent_newline_cmd = {
                     indent_delta--;
             }
         }
-
-        ts_query_cursor_delete(qcursor);
 
         int target_spaces = std::max(0, baseline_spaces + indent_delta * (int)indent_width);
         String indent_str(' ', CharCount{target_spaces});
