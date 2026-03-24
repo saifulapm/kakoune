@@ -6,12 +6,16 @@
 #include "unique_ptr.hh"
 #include "utils.hh"
 #include "vector.hh"
+#include "optional.hh"
+#include "regex.hh"
 #include "tree_sitter.hh"
 
 #include <climits>
 
 namespace Kakoune
 {
+
+class Buffer;
 
 String capture_to_face_name(StringView capture_name);
 
@@ -21,6 +25,25 @@ struct InjectionPattern
     bool combined = false;          // from #set! injection.combined
     bool include_children = false;  // from #set! injection.include-children
 };
+
+enum class PredicateType { Eq, NotEq, Match, NotMatch, AnyOf, NotAnyOf };
+
+struct QueryPredicate
+{
+    PredicateType type;
+    uint32_t capture_id;            // capture to test
+    String value;                   // literal string (Eq/NotEq)
+    Optional<uint32_t> capture_id2; // second capture (capture-vs-capture Eq/NotEq)
+    Vector<String> values;          // string set (AnyOf/NotAnyOf)
+    Optional<Regex> regex;          // compiled regex (Match/NotMatch)
+};
+
+using PatternPredicates = Vector<Vector<QueryPredicate>>;
+
+PatternPredicates parse_query_predicates(const TSQuery* query);
+bool predicates_match(const Vector<QueryPredicate>& predicates,
+                      const TSQueryMatch& match,
+                      const Buffer& buffer);
 
 class LanguageConfig
 {
@@ -48,6 +71,12 @@ public:
     TSQuery* indent_query() const { return m_indent_query; }
     TSQuery* locals_query() const { return m_locals_query; }
 
+    const PatternPredicates& highlight_predicates() const { return m_highlight_predicates; }
+    const PatternPredicates& injection_predicates() const { return m_injection_predicates; }
+    const PatternPredicates& textobject_predicates() const { return m_textobject_predicates; }
+    const PatternPredicates& indent_predicates() const { return m_indent_predicates; }
+    const PatternPredicates& locals_predicates() const { return m_locals_predicates; }
+
 private:
     friend class LanguageRegistry;
 
@@ -65,6 +94,12 @@ private:
     TSQuery* m_textobject_query = nullptr;
     TSQuery* m_indent_query = nullptr;
     TSQuery* m_locals_query = nullptr;
+
+    PatternPredicates m_highlight_predicates;
+    PatternPredicates m_injection_predicates;
+    PatternPredicates m_textobject_predicates;
+    PatternPredicates m_indent_predicates;
+    PatternPredicates m_locals_predicates;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>
