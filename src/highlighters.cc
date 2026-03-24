@@ -22,6 +22,9 @@
 #include "window.hh"
 #include "unicode.hh"
 
+#include "language_registry.hh"
+#include "syntax_tree.hh"
+
 #include <cstdio>
 #include <limits>
 
@@ -2423,6 +2426,104 @@ void setup_builtin_highlighters(HighlighterGroup& group)
     group.add_child("selections"_str,  make_highlighter(highlight_selections));
 }
 
+const HighlighterDesc tree_sitter_desc = {
+    "Apply tree-sitter syntax highlighting based on the buffer filetype",
+    {}
+};
+
+struct TreeSitterHighlighter : Highlighter
+{
+    TreeSitterHighlighter()
+        : Highlighter{HighlightPass::Colorize} {}
+
+    static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
+    {
+        return make_unique_ptr<TreeSitterHighlighter>();
+    }
+
+private:
+    void do_highlight(HighlightContext context, DisplayBuffer& display_buffer, BufferRange range) override
+    {
+        const auto& buffer = context.context.buffer();
+
+        if (not has_syntax_tree(buffer))
+        {
+            auto filetype = context.context.options()["filetype"].get<String>();
+            if (filetype.empty())
+                return;
+
+            auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+            const auto* config = LanguageRegistry::instance().get(lang_name);
+            if (not config or not config->language or not config->highlight_query)
+                return;
+
+            try
+            {
+                create_syntax_tree(buffer, config->language, config->highlight_query);
+            }
+            catch (runtime_error&)
+            {
+                return;
+            }
+        }
+
+        auto& syntax_tree = get_syntax_tree(buffer);
+        syntax_tree.update(buffer);
+
+        if (not syntax_tree.is_valid())
+            return;
+
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        if (not cursor)
+            return;
+
+        struct CursorGuard {
+            TSQueryCursor* c;
+            ~CursorGuard() { ts_query_cursor_delete(c); }
+        } cursor_guard{cursor};
+
+        const auto& byte_index = syntax_tree.byte_index();
+        auto display_range = display_buffer.range();
+        uint32_t start_byte = byte_index.byte_offset(display_range.begin);
+        uint32_t end_byte = byte_index.byte_offset(display_range.end);
+        ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
+
+        TSNode root = ts_tree_root_node(syntax_tree.tree());
+        ts_query_cursor_exec(cursor, syntax_tree.highlight_query(), root);
+
+        // Look up the config again for capture_faces
+        auto filetype = context.context.options()["filetype"].get<String>();
+        auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+        const auto* config = LanguageRegistry::instance().get(lang_name);
+        if (not config)
+            return;
+
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
+        {
+            const TSQueryCapture& capture = match.captures[capture_index];
+
+            if (capture.index >= config->capture_faces.size())
+                continue;
+
+            const auto& face_name = config->capture_faces[capture.index];
+
+            TSPoint start_point = ts_node_start_point(capture.node);
+            TSPoint end_point = ts_node_end_point(capture.node);
+
+            BufferCoord begin_coord{LineCount{(int)start_point.row},
+                                    ByteCount{(int)start_point.column}};
+            BufferCoord end_coord{LineCount{(int)end_point.row},
+                                  ByteCount{(int)end_point.column}};
+
+            Face face = context.context.faces()[face_name];
+            highlight_range(display_buffer, begin_coord, end_coord, false,
+                apply_face(face));
+        }
+    }
+};
+
 void register_highlighters()
 {
     HighlighterRegistry& registry = HighlighterRegistry::instance();
@@ -2475,6 +2576,9 @@ void register_highlighters()
     registry.insert({
         "show-whitespaces",
         { ShowWhitespacesHighlighter::create, &show_whitespace_desc } });
+    registry.insert({
+        "tree-sitter",
+        { TreeSitterHighlighter::create, &tree_sitter_desc } });
     registry.insert({
         "wrap",
         { WrapHighlighter::create, &wrap_desc } });
