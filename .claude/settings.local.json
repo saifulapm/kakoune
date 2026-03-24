@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/saiful/Sites/rust/kak-tree-sitter",
+      "/Users/saiful/Sites/rust/tree-house",
+      "/Users/saiful/Sites/rust/helix",
+      "/Users/saiful/Sites/rust/kakoune"
+    ]
+  }
+}
