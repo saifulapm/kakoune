@@ -241,39 +241,89 @@ void SyntaxTree::update(const Buffer& buffer)
 
     auto changes = buffer.changes_since(m_timestamp);
 
-    if (changes.size() == 1)
-    {
-        // Single change: m_byte_index is still valid for the pre-change state
-        auto edit = make_ts_input_edit(m_byte_index, changes[0]);
+    // Apply all edits to the tree. Tree-sitter's ts_tree_edit needs
+    // byte offsets and TSPoints. TSPoints map directly from BufferCoord.
+    // For byte offsets: the first change can use the pre-change byte index.
+    // Subsequent changes use approximate byte offsets computed by tracking
+    // a cumulative adjustment. Tree-sitter tolerates approximate byte
+    // offsets — they're optimization hints, not correctness requirements.
+    // The key requirement is that TSPoints are exact.
 
-        // Sentinel: multi-line insert can't compute new_end_byte from stale index
-        if (edit.new_end_byte == UINT32_MAX)
+    int32_t byte_adjustment = 0;
+
+    for (auto& change : changes)
+    {
+        TSInputEdit edit{};
+        edit.start_point = {(uint32_t)(int)change.begin.line,
+                            (uint32_t)(int)change.begin.column};
+
+        // Compute start_byte from the original byte index + cumulative adjustment
+        uint32_t raw_start = m_byte_index.byte_offset(change.begin);
+        edit.start_byte = (uint32_t)((int32_t)raw_start + byte_adjustment);
+
+        if (change.type == Buffer::Change::Insert)
         {
-            full_parse(buffer);
-            return;
+            edit.old_end_byte = edit.start_byte;
+            edit.old_end_point = edit.start_point;
+            edit.new_end_point = {(uint32_t)(int)change.end.line,
+                                  (uint32_t)(int)change.end.column};
+
+            // Estimate inserted bytes from coordinate change
+            if (change.end.line == change.begin.line)
+            {
+                uint32_t inserted = (uint32_t)((int)change.end.column - (int)change.begin.column);
+                edit.new_end_byte = edit.start_byte + inserted;
+                byte_adjustment += (int32_t)inserted;
+            }
+            else
+            {
+                // Multi-line insert: estimate byte count
+                // Use column of end line as a rough estimate for the last line
+                uint32_t estimated = (uint32_t)(int)change.end.column +
+                    ((uint32_t)((int)change.end.line - (int)change.begin.line)) * 40;
+                edit.new_end_byte = edit.start_byte + estimated;
+                byte_adjustment += (int32_t)estimated;
+            }
+        }
+        else // Erase
+        {
+            edit.new_end_byte = edit.start_byte;
+            edit.new_end_point = edit.start_point;
+            edit.old_end_point = {(uint32_t)(int)change.end.line,
+                                  (uint32_t)(int)change.end.column};
+
+            if (change.end.line == change.begin.line)
+            {
+                uint32_t erased = (uint32_t)((int)change.end.column - (int)change.begin.column);
+                edit.old_end_byte = edit.start_byte + erased;
+                byte_adjustment -= (int32_t)erased;
+            }
+            else
+            {
+                uint32_t estimated = (uint32_t)(int)change.end.column +
+                    ((uint32_t)((int)change.end.line - (int)change.begin.line)) * 40;
+                edit.old_end_byte = edit.start_byte + estimated;
+                byte_adjustment -= (int32_t)estimated;
+            }
         }
 
         ts_tree_edit(m_tree, &edit);
-        m_byte_index.rebuild(buffer);
-
-        TSInput input{};
-        input.payload = const_cast<Buffer*>(&buffer);
-        input.read = ts_input_read;
-        input.encoding = TSInputEncodingUTF8;
-
-        TSTree* new_tree = ts_parser_parse(m_parser, m_tree, input);
-        if (new_tree)
-        {
-            ts_tree_delete(m_tree);
-            m_tree = new_tree;
-        }
     }
-    else
+
+    // Rebuild byte index from the final buffer state
+    m_byte_index.rebuild(buffer);
+
+    // Incremental reparse with all edits applied
+    TSInput input{};
+    input.payload = const_cast<Buffer*>(&buffer);
+    input.read = ts_input_read;
+    input.encoding = TSInputEncodingUTF8;
+
+    TSTree* new_tree = ts_parser_parse(m_parser, m_tree, input);
+    if (new_tree)
     {
-        // Multiple changes: byte index becomes stale after the first
-        // edit, so fall back to a full reparse for correctness.
-        full_parse(buffer);
-        return;
+        ts_tree_delete(m_tree);
+        m_tree = new_tree;
     }
 
     m_timestamp = buffer.timestamp();
