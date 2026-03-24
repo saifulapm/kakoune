@@ -3552,27 +3552,42 @@ const CommandDesc tree_fold_cmd = {
         TSPoint start = ts_node_start_point(node);
         TSPoint end = ts_node_end_point(node);
 
-        // Fold range: from start of second line to start of closing line.
-        // Opening line stays visible, inner lines replaced with "...",
-        // closing line stays on its own line.
+        // Neovim-style fold: replace inner lines with a summary line
+        // showing line count and first line preview
         auto first_line = LineCount{(int)start.row};
         auto last_line = LineCount{(int)end.row};
+        int folded_lines = (int)(last_line - first_line) - 1;
 
-        // fold_begin: start of the line after the opening line
+        // Get first inner line content for preview
+        auto inner_line = buffer[first_line + 1];
+        ByteCount inner_ws = 0;
+        while (inner_ws < inner_line.length() and
+               (inner_line[(int)inner_ws] == ' ' or inner_line[(int)inner_ws] == '\t'))
+            inner_ws++;
+        auto inner_len = inner_line.length();
+        if (inner_len > 0 and inner_line[(int)(inner_len - 1)] == '\n')
+            inner_len--;
+        String preview{inner_line.substr(inner_ws, std::min(inner_len - inner_ws, 40_byte))};
+
+        // Fold range: from start of second line to end of second-to-last line
         BufferCoord fold_begin{first_line + 1, 0_byte};
-        // fold_end: last char before closing line's content
-        // (end of the line before the closing line)
         auto prev_line_len = buffer[last_line - 1].length();
         if (prev_line_len == 0)
             throw runtime_error("cannot fold — empty boundary line");
         BufferCoord fold_end{last_line - 1, prev_line_len - 1};
 
-        // Build range-spec: "line.col,line.col|{face}text"
-        // 1-based coordinates for option parsing
+        // Build fold text with proper indentation matching the inner line
+        String indent{inner_line.substr(0_byte, inner_ws)};
+        // Remove newline from indent if present
+        if (not indent.empty() and indent.back() == '\n')
+            indent = String{indent.substr(0_byte, indent.length() - 1)};
+
         String range_str = format("{}.{},{}.{}|",
                                   fold_begin.line + 1, fold_begin.column + 1,
                                   fold_end.line + 1, fold_end.column + 1);
-        range_str += "{comment} ... ";
+        range_str += "{comment}";
+        range_str += indent;
+        range_str += format("+-- {} lines: {}", folded_lines, preview);
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
         opt.add_from_strings(ConstArrayView<String>{range_str});
@@ -3695,10 +3710,26 @@ const CommandDesc tree_fold_all_cmd = {
                 BufferCoord fold_begin{first_line + 1, 0_byte};
                 BufferCoord fold_end{last_line - 1, prev_line_len - 1};
 
+                int folded_lines = (int)(last_line - first_line) - 1;
+                auto inner_line = buffer[first_line + 1];
+                ByteCount iws = 0;
+                while (iws < inner_line.length() and
+                       (inner_line[(int)iws] == ' ' or inner_line[(int)iws] == '\t'))
+                    iws++;
+                auto ilen = inner_line.length();
+                if (ilen > 0 and inner_line[(int)(ilen - 1)] == '\n')
+                    ilen--;
+                String preview{inner_line.substr(iws, std::min(ilen - iws, 40_byte))};
+                String indent{inner_line.substr(0_byte, iws)};
+                if (not indent.empty() and indent.back() == '\n')
+                    indent = String{indent.substr(0_byte, indent.length() - 1)};
+
                 String rs = format("{}.{},{}.{}|",
                                    fold_begin.line + 1, fold_begin.column + 1,
                                    fold_end.line + 1, fold_end.column + 1);
-                rs += "{comment} ... ";
+                rs += "{comment}";
+                rs += indent;
+                rs += format("+-- {} lines: {}", folded_lines, preview);
                 range_strs.push_back(std::move(rs));
             }
         }
