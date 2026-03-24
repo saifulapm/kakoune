@@ -20,6 +20,8 @@ String capture_to_face_name(StringView capture_name)
 
 LanguageConfig::~LanguageConfig()
 {
+    if (m_locals_query)
+        ts_query_delete(m_locals_query);
     if (m_indent_query)
         ts_query_delete(m_indent_query);
     if (m_textobject_query)
@@ -43,7 +45,8 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_injection_content_capture(other.m_injection_content_capture),
       m_injection_language_capture(other.m_injection_language_capture),
       m_textobject_query(other.m_textobject_query),
-      m_indent_query(other.m_indent_query)
+      m_indent_query(other.m_indent_query),
+      m_locals_query(other.m_locals_query)
 {
     other.m_language = nullptr;
     other.m_highlight_query = nullptr;
@@ -53,12 +56,15 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
     other.m_injection_language_capture = UINT32_MAX;
     other.m_textobject_query = nullptr;
     other.m_indent_query = nullptr;
+    other.m_locals_query = nullptr;
 }
 
 LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
 {
     if (this != &other)
     {
+        if (m_locals_query)
+            ts_query_delete(m_locals_query);
         if (m_indent_query)
             ts_query_delete(m_indent_query);
         if (m_textobject_query)
@@ -81,6 +87,7 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_injection_language_capture = other.m_injection_language_capture;
         m_textobject_query = other.m_textobject_query;
         m_indent_query = other.m_indent_query;
+        m_locals_query = other.m_locals_query;
 
         other.m_language = nullptr;
         other.m_highlight_query = nullptr;
@@ -90,6 +97,7 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         other.m_injection_language_capture = UINT32_MAX;
         other.m_textobject_query = nullptr;
         other.m_indent_query = nullptr;
+        other.m_locals_query = nullptr;
     }
     return *this;
 }
@@ -375,6 +383,31 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     catch (runtime_error&)
     {
         // No indents.scm file — that is fine, not all languages have one
+    }
+
+    // Try to load locals.scm (optional)
+    String locals_path = format("{}/runtime/queries/{}/locals.scm", m_runtime_dir, name);
+    try
+    {
+        String locals_text = read_file(locals_path);
+        if (not locals_text.empty())
+        {
+            uint32_t error_offset = 0;
+            TSQueryError error_type = TSQueryErrorNone;
+            config.m_locals_query = ts_query_new(lang, locals_text.c_str(),
+                                                  (uint32_t)(int)locals_text.length(),
+                                                  &error_offset, &error_type);
+            if (config.m_locals_query)
+                write_to_debug_buffer(format("tree-sitter: loaded locals for '{}' with {} captures",
+                                             name, ts_query_capture_count(config.m_locals_query)));
+            else
+                write_to_debug_buffer(format("tree-sitter: locals query error in {}/locals.scm at offset {} type {}",
+                                             name, error_offset, (int)error_type));
+        }
+    }
+    catch (runtime_error&)
+    {
+        // No locals.scm file — that is fine, not all languages have one
     }
 
     auto ptr = make_unique_ptr<LanguageConfig>(std::move(config));

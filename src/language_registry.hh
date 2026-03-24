@@ -46,6 +46,7 @@ public:
 
     TSQuery* textobject_query() const { return m_textobject_query; }
     TSQuery* indent_query() const { return m_indent_query; }
+    TSQuery* locals_query() const { return m_locals_query; }
 
 private:
     friend class LanguageRegistry;
@@ -63,6 +64,7 @@ private:
 
     TSQuery* m_textobject_query = nullptr;
     TSQuery* m_indent_query = nullptr;
+    TSQuery* m_locals_query = nullptr;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>

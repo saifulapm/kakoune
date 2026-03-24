@@ -2430,6 +2430,166 @@ const HighlighterDesc tree_sitter_desc = {
     {}
 };
 
+// Extract the text of a tree-sitter node from the buffer.
+// Only handles single-line nodes; multi-line identifiers are not expected.
+static String ts_node_text(TSNode node, const Buffer& buffer)
+{
+    TSPoint start = ts_node_start_point(node);
+    TSPoint end = ts_node_end_point(node);
+    auto line = LineCount{(int)start.row};
+    if (line >= buffer.line_count())
+        return {};
+    StringView line_content = buffer[line];
+    auto col_start = ByteCount{(int)start.column};
+    if (start.row == end.row)
+    {
+        auto col_end = ByteCount{(int)end.column};
+        if (col_end > line_content.length())
+            col_end = line_content.length();
+        if (col_start >= col_end)
+            return {};
+        return line_content.substr(col_start, col_end - col_start).str();
+    }
+    // Multi-line: just take first line portion (rare for identifiers)
+    return line_content.substr(col_start).str();
+}
+
+// Build a set of byte positions where a @local.reference resolves to a
+// local definition within the scope chain.  These positions will get the
+// ts_variable face during highlighting.
+static HashSet<uint32_t> build_local_references(
+    TSQuery* locals_query, TSNode root, const Buffer& buffer)
+{
+    HashSet<uint32_t> local_ref_positions;
+
+    // Discover capture indices for local.scope, local.definition*, local.reference
+    uint32_t scope_idx = UINT32_MAX, ref_idx = UINT32_MAX;
+    Vector<uint32_t> def_indices;
+    uint32_t cap_count = ts_query_capture_count(locals_query);
+    for (uint32_t i = 0; i < cap_count; ++i)
+    {
+        uint32_t len;
+        const char* name = ts_query_capture_name_for_id(locals_query, i, &len);
+        StringView n{name, (ByteCount)len};
+        if (n == "local.scope")
+            scope_idx = i;
+        else if (n == "local.reference")
+            ref_idx = i;
+        else if (n == "local.definition" or n.substr(0_byte, std::min(n.length(), 17_byte)) == "local.definition.")
+            def_indices.push_back(i);
+    }
+
+    if (scope_idx == UINT32_MAX or ref_idx == UINT32_MAX)
+        return local_ref_positions;
+
+    // Collect scopes, definitions, references in a single pass
+    struct ScopeInfo {
+        uint32_t start_byte;
+        uint32_t end_byte;
+        HashSet<String> defs;
+    };
+    Vector<ScopeInfo> scopes;
+    struct DefInfo {
+        uint32_t byte_pos;
+        String name;
+    };
+    Vector<DefInfo> defs;
+    struct RefInfo {
+        uint32_t byte_pos;
+        String name;
+    };
+    Vector<RefInfo> refs;
+
+    TSQueryCursor* cursor = ts_query_cursor_new();
+    ts_query_cursor_set_match_limit(cursor, 256);
+    ts_query_cursor_exec(cursor, locals_query, root);
+
+    TSQueryMatch match;
+    while (ts_query_cursor_next_match(cursor, &match))
+    {
+        for (uint16_t c = 0; c < match.capture_count; ++c)
+        {
+            auto& cap = match.captures[c];
+            if (cap.index == scope_idx)
+            {
+                scopes.push_back({ts_node_start_byte(cap.node),
+                                  ts_node_end_byte(cap.node), {}});
+            }
+            else if (cap.index == ref_idx)
+            {
+                String name = ts_node_text(cap.node, buffer);
+                if (not name.empty())
+                    refs.push_back({ts_node_start_byte(cap.node), std::move(name)});
+            }
+            else
+            {
+                // Check if this is a definition capture
+                bool is_def = false;
+                for (auto idx : def_indices)
+                {
+                    if (cap.index == idx)
+                    {
+                        is_def = true;
+                        break;
+                    }
+                }
+                if (is_def)
+                {
+                    String name = ts_node_text(cap.node, buffer);
+                    if (not name.empty())
+                        defs.push_back({ts_node_start_byte(cap.node), std::move(name)});
+                }
+            }
+        }
+    }
+    ts_query_cursor_delete(cursor);
+
+    // Sort scopes by start_byte ascending, then by end_byte descending (wider first)
+    std::sort(scopes.begin(), scopes.end(), [](const ScopeInfo& a, const ScopeInfo& b) {
+        return a.start_byte < b.start_byte or
+               (a.start_byte == b.start_byte and a.end_byte > b.end_byte);
+    });
+
+    // Insert definitions into their innermost containing scope
+    for (auto& def : defs)
+    {
+        // Find innermost scope: the last scope whose range contains this position
+        ScopeInfo* innermost = nullptr;
+        for (auto& scope : scopes)
+        {
+            if (scope.start_byte <= def.byte_pos and def.byte_pos < scope.end_byte)
+                innermost = &scope;
+        }
+        if (innermost)
+            innermost->defs.insert(std::move(def.name));
+    }
+
+    // For each reference, walk the scope chain (inner to outer) to find a definition
+    for (auto& ref : refs)
+    {
+        bool found = false;
+        // Walk scopes from innermost to outermost
+        // Since scopes are sorted by start_byte asc / end_byte desc,
+        // we iterate in reverse to check innermost first
+        for (int i = (int)scopes.size() - 1; i >= 0; --i)
+        {
+            auto& scope = scopes[i];
+            if (scope.start_byte <= ref.byte_pos and ref.byte_pos < scope.end_byte)
+            {
+                if (scope.defs.find(ref.name) != scope.defs.end())
+                {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (found)
+            local_ref_positions.insert(ref.byte_pos);
+    }
+
+    return local_ref_positions;
+}
+
 struct TreeSitterHighlighter : Highlighter
 {
     TreeSitterHighlighter()
@@ -2454,6 +2614,7 @@ private:
     void run_highlights(TSQuery* query, TSNode root,
                         const Vector<String>& capture_faces,
                         uint32_t start_byte, uint32_t end_byte,
+                        const HashSet<uint32_t>& local_refs,
                         HighlightContext& context, DisplayBuffer& display_buffer)
     {
         if (not m_cursor)
@@ -2472,7 +2633,13 @@ private:
             if (capture.index >= (uint32_t)capture_faces.size())
                 continue;
 
-            const auto& face_name = capture_faces[(int)capture.index];
+            uint32_t node_start = ts_node_start_byte(capture.node);
+            bool is_local_ref = not local_refs.empty()
+                                and local_refs.find(node_start) != local_refs.end();
+
+            static const String local_face_name{"ts_variable"};
+            const auto& face_name = is_local_ref ? local_face_name
+                                                 : capture_faces[(int)capture.index];
 
             TSPoint start_point = ts_node_start_point(capture.node);
             TSPoint end_point = ts_node_end_point(capture.node);
@@ -2535,11 +2702,19 @@ private:
         TSQuery* root_query = config->highlight_query();
         const auto& root_faces = config->capture_faces();
 
+        // Build local variable reference positions for scope-aware highlighting
+        HashSet<uint32_t> local_refs;
+        if (config->locals_query())
+            local_refs = build_local_references(config->locals_query(),
+                                                ts_tree_root_node(syntax_tree.tree()),
+                                                buffer);
+
         // Highlight root layer
         run_highlights(root_query,
                        ts_tree_root_node(syntax_tree.tree()),
                        root_faces,
                        start_byte, end_byte,
+                       local_refs,
                        context, display_buffer);
 
         // Detect and highlight injection layers
@@ -2553,10 +2728,18 @@ private:
             TSQuery* inj_query = layer.config->highlight_query();
             const auto& inj_faces = layer.config->capture_faces();
 
+            // Build local refs for injection layers if they have their own locals query
+            HashSet<uint32_t> inj_local_refs;
+            if (layer.config->locals_query())
+                inj_local_refs = build_local_references(layer.config->locals_query(),
+                                                        ts_tree_root_node(layer.tree),
+                                                        buffer);
+
             run_highlights(inj_query,
                            ts_tree_root_node(layer.tree),
                            inj_faces,
                            start_byte, end_byte,
+                           inj_local_refs,
                            context, display_buffer);
         }
     }
