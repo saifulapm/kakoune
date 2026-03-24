@@ -2839,6 +2839,279 @@ const CommandDesc tree_sitter_disable_cmd = {
     }
 };
 
+struct TreeSelectResult
+{
+    TSNode node;
+    bool found;
+};
+
+static void ensure_textobject_query(const Buffer& buffer, SyntaxTree& syntax_tree)
+{
+    if (not has_syntax_tree(buffer))
+        throw runtime_error("no tree-sitter syntax tree for this buffer");
+
+    syntax_tree.update(buffer);
+
+    if (not syntax_tree.is_valid() or not syntax_tree.config() or
+        not syntax_tree.config()->textobject_query())
+        throw runtime_error("no textobject query for this buffer's language");
+}
+
+static uint32_t find_capture_index(TSQuery* query, StringView capture_name)
+{
+    uint32_t cap_count = ts_query_capture_count(query);
+    for (uint32_t i = 0; i < cap_count; ++i)
+    {
+        uint32_t len = 0;
+        const char* name = ts_query_capture_name_for_id(query, i, &len);
+        if (StringView{name, (ByteCount)len} == capture_name)
+            return i;
+    }
+    return UINT32_MAX;
+}
+
+static Selection node_to_selection(const Buffer& buffer, TSNode node)
+{
+    TSPoint start_pt = ts_node_start_point(node);
+    TSPoint end_pt = ts_node_end_point(node);
+
+    BufferCoord begin{LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}};
+    BufferCoord end{LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}};
+
+    // Kakoune selections are inclusive on both ends,
+    // tree-sitter end is exclusive, so back up one char
+    if (end > begin)
+        end = buffer.char_prev(end);
+
+    return Selection{begin, end};
+}
+
+const CommandDesc tree_select_cmd = {
+    "tree-select",
+    nullptr,
+    "tree-select <object> <inside|around>: select smallest tree-sitter text object containing cursor",
+    double_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        auto mode = parser[1];
+
+        if (mode != "inside" and mode != "around")
+            throw runtime_error("second argument must be 'inside' or 'around'");
+
+        String capture_name = format("{}.{}", object_name, mode);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target_capture = find_capture_index(query, capture_name);
+
+        if (target_capture == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        auto& byte_index = syntax_tree.byte_index();
+        auto& selections = context.selections();
+
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            auto cursor = sel.cursor();
+            uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+            TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+            TSNode best_node = {};
+            uint32_t best_size = UINT32_MAX;
+            bool found = false;
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint32_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != target_capture)
+                        continue;
+
+                    TSNode node = match.captures[c].node;
+                    uint32_t start = ts_node_start_byte(node);
+                    uint32_t end = ts_node_end_byte(node);
+
+                    if (start <= cursor_byte and cursor_byte < end)
+                    {
+                        uint32_t size = end - start;
+                        if (size < best_size)
+                        {
+                            best_size = size;
+                            best_node = node;
+                            found = true;
+                        }
+                    }
+                }
+            }
+
+            ts_query_cursor_delete(qcursor);
+
+            if (found)
+                new_selections.push_back(node_to_selection(buffer, best_node));
+            else
+                new_selections.push_back(sel);
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_select_next_cmd = {
+    "tree-select-next",
+    nullptr,
+    "tree-select-next <object>: select next tree-sitter text object after cursor",
+    single_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        String capture_name = format("{}.around", object_name);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target_capture = find_capture_index(query, capture_name);
+
+        if (target_capture == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        auto& byte_index = syntax_tree.byte_index();
+        auto& selections = context.selections();
+
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            auto cursor = sel.cursor();
+            uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+            TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+            TSNode best_node = {};
+            uint32_t best_start = UINT32_MAX;
+            bool found = false;
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint32_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != target_capture)
+                        continue;
+
+                    TSNode node = match.captures[c].node;
+                    uint32_t start = ts_node_start_byte(node);
+
+                    if (start > cursor_byte and start < best_start)
+                    {
+                        best_start = start;
+                        best_node = node;
+                        found = true;
+                    }
+                }
+            }
+
+            ts_query_cursor_delete(qcursor);
+
+            if (found)
+                new_selections.push_back(node_to_selection(buffer, best_node));
+            else
+                new_selections.push_back(sel);
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_select_prev_cmd = {
+    "tree-select-prev",
+    nullptr,
+    "tree-select-prev <object>: select previous tree-sitter text object before cursor",
+    single_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        String capture_name = format("{}.around", object_name);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target_capture = find_capture_index(query, capture_name);
+
+        if (target_capture == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        auto& byte_index = syntax_tree.byte_index();
+        auto& selections = context.selections();
+
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            auto cursor = sel.cursor();
+            uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+            TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+            TSNode best_node = {};
+            uint32_t best_start = 0;
+            bool found = false;
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint32_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != target_capture)
+                        continue;
+
+                    TSNode node = match.captures[c].node;
+                    uint32_t start = ts_node_start_byte(node);
+
+                    if (start < cursor_byte and start >= best_start)
+                    {
+                        best_start = start;
+                        best_node = node;
+                        found = true;
+                    }
+                }
+            }
+
+            ts_query_cursor_delete(qcursor);
+
+            if (found)
+                new_selections.push_back(node_to_selection(buffer, best_node));
+            else
+                new_selections.push_back(sel);
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -2910,6 +3183,9 @@ void register_commands()
     register_command(require_module_cmd);
     register_command(tree_sitter_enable_cmd);
     register_command(tree_sitter_disable_cmd);
+    register_command(tree_select_cmd);
+    register_command(tree_select_next_cmd);
+    register_command(tree_select_prev_cmd);
 }
 
 }
