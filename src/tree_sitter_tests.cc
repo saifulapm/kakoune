@@ -54,4 +54,31 @@ UnitTest test_injection_pattern_defaults{[]()
     kak_assert(with_lang.include_children == true);
 }};
 
+UnitTest test_query_predicate_defaults{[]()
+{
+    QueryPredicate pred;
+    pred.type = PredicateType::Eq;
+    pred.capture_id = 0;
+    pred.value = "test";
+    kak_assert(pred.type == PredicateType::Eq);
+    kak_assert(pred.capture_id == 0);
+    kak_assert(pred.value == "test");
+    kak_assert(not pred.capture_id2);
+    kak_assert(pred.values.empty());
+    kak_assert(not pred.regex);
+
+    QueryPredicate match_pred;
+    match_pred.type = PredicateType::Match;
+    match_pred.capture_id = 1;
+    match_pred.regex = Regex{"^[A-Z]+$"};
+    kak_assert(match_pred.type == PredicateType::Match);
+    kak_assert((bool)match_pred.regex);
+
+    QueryPredicate anyof_pred;
+    anyof_pred.type = PredicateType::AnyOf;
+    anyof_pred.capture_id = 2;
+    anyof_pred.values = {"if", "else", "while"};
+    kak_assert(anyof_pred.values.size() == 3);
+}};
+
 } // namespace Kakoune
