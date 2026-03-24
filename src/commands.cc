@@ -3316,6 +3316,10 @@ const CommandDesc tree_select_node_cmd = {
     }
 };
 
+// Expansion history stack — stores previous selections so tree-shrink
+// can retrace the exact path of tree-expand.
+static Vector<Vector<Selection, MemoryDomain::Selections>, MemoryDomain::Selections> expand_history;
+
 const CommandDesc tree_expand_cmd = {
     "tree-expand",
     nullptr,
@@ -3331,6 +3335,17 @@ const CommandDesc tree_expand_cmd = {
         ensure_syntax_tree(buffer, syntax_tree);
 
         auto& selections = context.selections();
+
+        // Save current selections to history before expanding
+        Vector<Selection, MemoryDomain::Selections> saved;
+        for (auto& sel : selections)
+            saved.push_back(sel);
+        expand_history.push_back(std::move(saved));
+
+        // Cap history depth
+        if (expand_history.size() > 32)
+            expand_history.erase(expand_history.begin());
+
         Vector<Selection, MemoryDomain::Selections> new_selections;
 
         for (auto& sel : selections)
@@ -3342,8 +3357,6 @@ const CommandDesc tree_expand_cmd = {
                 continue;
             }
 
-            // If current selection already covers this node, walk up
-            // until we find a strictly larger node
             auto node_sel = node_to_selection(buffer, node);
             while (not ts_node_is_null(node) and
                    node_sel.min() >= sel.min() and node_sel.max() <= sel.max())
@@ -3365,116 +3378,22 @@ const CommandDesc tree_expand_cmd = {
 const CommandDesc tree_shrink_cmd = {
     "tree-shrink",
     nullptr,
-    "tree-shrink: shrink selection to first child AST node containing cursor",
+    "tree-shrink: restore selection from before the last tree-expand",
     no_params,
     CommandFlags::None,
     CommandHelper{},
     CommandCompleter{},
     [](const ParametersParser&, Context& context, const ShellContext&)
     {
-        auto& buffer = context.buffer();
-        auto& syntax_tree = get_syntax_tree(buffer);
-        ensure_syntax_tree(buffer, syntax_tree);
+        if (expand_history.empty())
+            throw runtime_error("no tree-expand history to shrink back to");
 
-        auto& byte_index = syntax_tree.byte_index();
         auto& selections = context.selections();
-        Vector<Selection, MemoryDomain::Selections> new_selections;
+        auto restored = std::move(expand_history.back());
+        expand_history.pop_back();
 
-        for (auto& sel : selections)
-        {
-            // Find the node spanning the current selection using byte range
-            uint32_t sel_start = byte_index.byte_offset(sel.min());
-            uint32_t sel_end = byte_index.byte_offset(sel.max());
-
-            TSNode node = ts_node_named_descendant_for_byte_range(
-                ts_tree_root_node(syntax_tree.tree()), sel_start, sel_end);
-
-            if (ts_node_is_null(node))
-            {
-                new_selections.push_back(sel);
-                continue;
-            }
-
-            // Walk up until we find a node that fully covers the selection
-            while (not ts_node_is_null(node) and
-                   (ts_node_start_byte(node) > sel_start or
-                    ts_node_end_byte(node) < sel_end))
-            {
-                TSNode parent = ts_node_parent(node);
-                if (ts_node_is_null(parent))
-                    break;
-                node = parent;
-            }
-
-            // Find the largest named child that is strictly smaller than the current node.
-            // We pick the child closest to the selection's anchor (start), since after
-            // tree-expand the cursor sits at the end boundary which is often a
-            // closing delimiter with no named children.
-            uint32_t anchor_byte = byte_index.byte_offset(sel.min());
-            uint32_t node_size = ts_node_end_byte(node) - ts_node_start_byte(node);
-            bool found_child = false;
-            TSNode best_child = {};
-            uint32_t best_size = 0;
-
-            uint32_t child_count = ts_node_named_child_count(node);
-            for (uint32_t i = 0; i < child_count; ++i)
-            {
-                TSNode child = ts_node_named_child(node, i);
-                uint32_t child_start = ts_node_start_byte(child);
-                uint32_t child_end = ts_node_end_byte(child);
-                uint32_t child_size = child_end - child_start;
-
-                // Child must contain anchor and be strictly smaller
-                if (child_start <= anchor_byte and anchor_byte < child_end and
-                    child_size < node_size)
-                {
-                    // Prefer the largest child containing anchor (most useful shrink)
-                    if (child_size > best_size)
-                    {
-                        best_child = child;
-                        best_size = child_size;
-                        found_child = true;
-                    }
-                }
-            }
-
-            // If no child contains anchor, try any child containing cursor
-            if (not found_child)
-            {
-                uint32_t cursor_byte = byte_index.byte_offset(sel.cursor());
-                for (uint32_t i = 0; i < child_count; ++i)
-                {
-                    TSNode child = ts_node_named_child(node, i);
-                    uint32_t child_start = ts_node_start_byte(child);
-                    uint32_t child_end = ts_node_end_byte(child);
-                    uint32_t child_size = child_end - child_start;
-
-                    if (child_start <= cursor_byte and cursor_byte < child_end and
-                        child_size < node_size and child_size > best_size)
-                    {
-                        best_child = child;
-                        best_size = child_size;
-                        found_child = true;
-                    }
-                }
-            }
-
-            // Last resort: just pick the first named child
-            if (not found_child and child_count > 0)
-            {
-                best_child = ts_node_named_child(node, 0);
-                found_child = true;
-            }
-
-            if (found_child)
-                new_selections.push_back(node_to_selection(buffer, best_child));
-            else
-
-            if (not found_child)
-                new_selections.push_back(sel);
-        }
-
-        selections.set(std::move(new_selections), selections.main_index());
+        if (not restored.empty())
+            selections.set(std::move(restored), 0);
     }
 };
 
