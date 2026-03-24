@@ -2459,6 +2459,8 @@ private:
             return;
 
         auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+        if (not LanguageRegistry::has_instance())
+            return;
         const auto* config = LanguageRegistry::instance().get(lang_name);
         if (not config or not config->language() or not config->highlight_query())
             return;
@@ -2489,8 +2491,6 @@ private:
 
         TSNode root = ts_tree_root_node(syntax_tree.tree());
         ts_query_cursor_exec(m_cursor, config->highlight_query(), root);
-
-        int match_count = 0;
         TSQueryMatch match;
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))

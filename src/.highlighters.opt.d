@@ -919,9 +919,8 @@ src/highlighters.opt.o: src/highlighters.cc src/highlighters.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__exception/terminate.h \
   src/flags.hh src/safe_ptr.hh src/ref_ptr.hh src/scope.hh \
   src/shared_string.hh src/value.hh src/buffer.inl.hh src/selection.hh \
-  src/utf8_iterator.hh src/debug.hh src/changes.hh \
-  src/command_manager.hh src/shell_manager.hh src/env_vars.hh \
-  src/unique_descriptor.hh \
+  src/utf8_iterator.hh src/changes.hh src/command_manager.hh \
+  src/shell_manager.hh src/env_vars.hh src/unique_descriptor.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/signal.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/unistd.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/unistd.h \
@@ -930,8 +929,8 @@ src/highlighters.opt.o: src/highlighters.cc src/highlighters.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/_select.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/_types/_uuid_t.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/gethostuuid.h \
-  src/context.hh src/display_buffer.hh src/face.hh src/face_registry.hh \
-  src/ranges.hh \
+  src/context.hh src/debug.hh src/display_buffer.hh src/face.hh \
+  src/face_registry.hh src/ranges.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/numeric \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/accumulate.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/adjacent_difference.h \
@@ -947,9 +946,12 @@ src/highlighters.opt.o: src/highlighters.cc src/highlighters.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/transform_reduce.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/midpoint.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/saturation_arithmetic.h \
-  src/highlighter_group.hh src/line_modification.hh \
-  src/option_manager.hh src/option_types.hh src/string_utils.hh \
-  src/regex.hh src/regex_vm.hh \
+  src/highlighter_group.hh src/language_registry.hh src/tree_sitter.hh \
+  src/tree_sitter/api.h \
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/stdbool.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include/stdbool.h \
+  src/line_modification.hh src/option_manager.hh src/option_types.hh \
+  src/string_utils.hh src/regex.hh src/regex_vm.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/bit \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/bit_ceil.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/bit_floor.h \
@@ -957,7 +959,7 @@ src/highlighters.opt.o: src/highlighters.cc src/highlighters.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/endian.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/has_single_bit.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/byteswap.h \
-  src/register_manager.hh src/window.hh
+  src/register_manager.hh src/syntax_tree.hh src/window.hh
 src/highlighters.hh:
 src/color.hh:
 src/exception.hh:
@@ -1906,7 +1908,6 @@ src/value.hh:
 src/buffer.inl.hh:
 src/selection.hh:
 src/utf8_iterator.hh:
-src/debug.hh:
 src/changes.hh:
 src/command_manager.hh:
 src/shell_manager.hh:
@@ -1921,6 +1922,7 @@ src/unique_descriptor.hh:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/_types/_uuid_t.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/gethostuuid.h:
 src/context.hh:
+src/debug.hh:
 src/display_buffer.hh:
 src/face.hh:
 src/face_registry.hh:
@@ -1941,6 +1943,11 @@ src/ranges.hh:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/midpoint.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/saturation_arithmetic.h:
 src/highlighter_group.hh:
+src/language_registry.hh:
+src/tree_sitter.hh:
+src/tree_sitter/api.h:
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/stdbool.h:
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include/stdbool.h:
 src/line_modification.hh:
 src/option_manager.hh:
 src/option_types.hh:
@@ -1955,4 +1962,5 @@ src/regex_vm.hh:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/has_single_bit.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__bit/byteswap.h:
 src/register_manager.hh:
+src/syntax_tree.hh:
 src/window.hh:

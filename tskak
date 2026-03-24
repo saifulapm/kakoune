@@ -1,2 +1,3 @@
 #!/bin/sh
-KAKOUNE_RUNTIME="$(dirname "$0")/share/kak" exec "$(dirname "$0")/src/kak" "$@"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+KAKOUNE_RUNTIME="$DIR" exec "$DIR/src/kak" "$@"

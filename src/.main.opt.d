@@ -950,7 +950,11 @@ src/main.opt.o: src/main.cc src/assert.hh src/backtrace.hh src/buffer.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__numeric/saturation_arithmetic.h \
   src/hook_manager.hh src/highlighters.hh src/highlighter.hh \
   src/insert_completer.hh src/json_ui.hh src/user_interface.hh \
-  src/keymap_manager.hh src/terminal_ui.hh \
+  src/keymap_manager.hh src/language_registry.hh src/tree_sitter.hh \
+  src/tree_sitter/api.h \
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/stdbool.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include/stdbool.h \
+  src/terminal_ui.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/termios.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/termios.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/ttycom.h \
@@ -1969,6 +1973,11 @@ src/insert_completer.hh:
 src/json_ui.hh:
 src/user_interface.hh:
 src/keymap_manager.hh:
+src/language_registry.hh:
+src/tree_sitter.hh:
+src/tree_sitter/api.h:
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/stdbool.h:
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include/stdbool.h:
 src/terminal_ui.hh:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/termios.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/termios.h:
