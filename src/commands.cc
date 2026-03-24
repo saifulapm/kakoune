@@ -34,6 +34,8 @@
 #include "string.hh"
 #include "user_interface.hh"
 #include "window.hh"
+#include "syntax_tree.hh"
+#include "language_registry.hh"
 
 #include <utility>
 
@@ -2793,6 +2795,50 @@ const CommandDesc require_module_cmd = {
 
 }
 
+const CommandDesc tree_sitter_enable_cmd = {
+    "tree-sitter-enable",
+    nullptr,
+    "tree-sitter-enable: enable tree-sitter highlighting for the current buffer",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto filetype = context.options()["filetype"].get<String>();
+        if (filetype.empty())
+            throw runtime_error("buffer has no filetype set");
+
+        if (not LanguageRegistry::has_instance())
+            throw runtime_error("tree-sitter language registry not initialized");
+
+        auto language = LanguageRegistry::filetype_to_language(filetype);
+        auto* config = LanguageRegistry::instance().get(language);
+        if (not config)
+            throw runtime_error(format("no tree-sitter grammar for '{}'", language));
+
+        if (not has_syntax_tree(buffer))
+            create_syntax_tree(buffer, config->language, config->highlight_query);
+    }
+};
+
+const CommandDesc tree_sitter_disable_cmd = {
+    "tree-sitter-disable",
+    nullptr,
+    "tree-sitter-disable: disable tree-sitter highlighting for the current buffer",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        if (has_syntax_tree(buffer))
+            remove_syntax_tree(buffer);
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -2862,6 +2908,8 @@ void register_commands()
     register_command(enter_user_mode_cmd);
     register_command(provide_module_cmd);
     register_command(require_module_cmd);
+    register_command(tree_sitter_enable_cmd);
+    register_command(tree_sitter_disable_cmd);
 }
 
 }
