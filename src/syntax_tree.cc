@@ -44,7 +44,19 @@ TSInputEdit make_ts_input_edit(const LineByteIndex& index,
         // Insert: old_end == start (nothing was removed), new_end = change.end
         edit.old_end_byte = start_byte;
         edit.old_end_point = start_point;
-        edit.new_end_byte = index.byte_offset(change.end);
+
+        // change.end is in post-insert coordinates — the byte index is stale
+        // for lines that were pushed down.  Compute new_end_byte from the
+        // change extent instead of looking it up in the pre-change index.
+        uint32_t inserted_lines = (uint32_t)(int)change.end.line
+                                - (uint32_t)(int)change.begin.line;
+        if (inserted_lines == 0)
+            edit.new_end_byte = start_byte
+                              + ((uint32_t)(int)change.end.column
+                               - (uint32_t)(int)change.begin.column);
+        else
+            edit.new_end_byte = UINT32_MAX;  // sentinel — caller will full-reparse
+
         edit.new_end_point = {(uint32_t)(int)change.end.line,
                               (uint32_t)(int)change.end.column};
     }
@@ -182,6 +194,7 @@ SyntaxTree::SyntaxTree(SyntaxTree&& other) noexcept
       m_language_name(std::move(other.m_language_name)),
       m_byte_index(std::move(other.m_byte_index)),
       m_timestamp(other.m_timestamp),
+      m_injection_timestamp(other.m_injection_timestamp),
       m_injection_layers(std::move(other.m_injection_layers))
 {
     other.m_parser = nullptr;
@@ -204,6 +217,7 @@ SyntaxTree& SyntaxTree::operator=(SyntaxTree&& other) noexcept
         m_language_name = std::move(other.m_language_name);
         m_byte_index = std::move(other.m_byte_index);
         m_timestamp = other.m_timestamp;
+        m_injection_timestamp = other.m_injection_timestamp;
         m_injection_layers = std::move(other.m_injection_layers);
 
         other.m_parser = nullptr;
@@ -229,6 +243,14 @@ void SyntaxTree::update(const Buffer& buffer)
     {
         // Single change: m_byte_index is still valid for the pre-change state
         auto edit = make_ts_input_edit(m_byte_index, changes[0]);
+
+        // Sentinel: multi-line insert can't compute new_end_byte from stale index
+        if (edit.new_end_byte == UINT32_MAX)
+        {
+            full_parse(buffer);
+            return;
+        }
+
         ts_tree_edit(m_tree, &edit);
         m_byte_index.rebuild(buffer);
 
@@ -281,6 +303,10 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
     const auto* cfg = config();
     if (not cfg or not cfg->injection_query() or not m_tree)
         return;
+
+    if (m_injection_timestamp == m_timestamp)
+        return;
+    m_injection_timestamp = m_timestamp;
 
     m_injection_layers.clear();
 

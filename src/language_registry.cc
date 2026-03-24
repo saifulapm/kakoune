@@ -160,6 +160,28 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     TSLanguage* lang = grammar_fn();
+    if (not lang)
+    {
+        write_to_debug_buffer(format("tree-sitter: grammar function '{}' returned null",
+                                     symbol_name));
+        dlclose(handle);
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
+        return nullptr;
+    }
+
+    uint32_t abi = ts_language_abi_version(lang);
+    if (abi > TREE_SITTER_LANGUAGE_VERSION or
+        abi < TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION)
+    {
+        write_to_debug_buffer(format("tree-sitter: grammar '{}' ABI version {} "
+                                     "not compatible (need {}-{})",
+                                     name, abi,
+                                     TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION,
+                                     TREE_SITTER_LANGUAGE_VERSION));
+        dlclose(handle);
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
+        return nullptr;
+    }
 
     // Read the highlights query file
     String query_path = format("{}/runtime/queries/{}/highlights.scm", m_runtime_dir, name);

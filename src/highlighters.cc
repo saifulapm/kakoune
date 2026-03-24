@@ -2433,7 +2433,14 @@ const HighlighterDesc tree_sitter_desc = {
 struct TreeSitterHighlighter : Highlighter
 {
     TreeSitterHighlighter()
-        : Highlighter{HighlightPass::Colorize} {}
+        : Highlighter{HighlightPass::Colorize},
+          m_cursor(ts_query_cursor_new()) {}
+
+    ~TreeSitterHighlighter() override
+    {
+        if (m_cursor)
+            ts_query_cursor_delete(m_cursor);
+    }
 
     static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
     {
@@ -2441,23 +2448,24 @@ struct TreeSitterHighlighter : Highlighter
     }
 
 private:
+    TSQueryCursor* m_cursor;
+
     // Run a highlight query and apply faces to the display buffer
     void run_highlights(TSQuery* query, TSNode root,
                         const Vector<String>& capture_faces,
                         uint32_t start_byte, uint32_t end_byte,
                         HighlightContext& context, DisplayBuffer& display_buffer)
     {
-        TSQueryCursor* cursor = ts_query_cursor_new();
-        if (not cursor)
+        if (not m_cursor)
             return;
 
-        ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
-        ts_query_cursor_set_match_limit(cursor, 256);
-        ts_query_cursor_exec(cursor, query, root);
+        ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
+        ts_query_cursor_set_match_limit(m_cursor, 256);
+        ts_query_cursor_exec(m_cursor, query, root);
 
         TSQueryMatch match;
         uint32_t capture_index;
-        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
+        while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
         {
             const TSQueryCapture& capture = match.captures[capture_index];
 
@@ -2482,8 +2490,6 @@ private:
             }
             catch (runtime_error&) {}
         }
-
-        ts_query_cursor_delete(cursor);
     }
 
     void do_highlight(HighlightContext context, DisplayBuffer& display_buffer, BufferRange range) override
@@ -2524,10 +2530,10 @@ private:
         uint32_t start_byte = byte_index.byte_offset(display_range.begin);
         uint32_t end_byte = byte_index.byte_offset(display_range.end);
 
-        // Copy query and faces locally — LanguageRegistry pointers can
-        // be invalidated if detect_injections loads new grammars
+        // With UniquePtr-based storage, LanguageConfig pointers are stable
+        // across HashMap reallocation — safe to use const references.
         TSQuery* root_query = config->highlight_query();
-        Vector<String> root_faces = config->capture_faces();
+        const auto& root_faces = config->capture_faces();
 
         // Highlight root layer
         run_highlights(root_query,
@@ -2544,9 +2550,8 @@ private:
             if (not layer.tree or not layer.config or not layer.config->highlight_query())
                 continue;
 
-            // Copy faces since layer.config may be invalidated
             TSQuery* inj_query = layer.config->highlight_query();
-            Vector<String> inj_faces = layer.config->capture_faces();
+            const auto& inj_faces = layer.config->capture_faces();
 
             run_highlights(inj_query,
                            ts_tree_root_node(layer.tree),
@@ -2594,6 +2599,8 @@ private:
             return;
 
         auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+        if (not LanguageRegistry::has_instance())
+            return;
         const auto* config = LanguageRegistry::instance().get(lang_name);
         if (not config or not config->language())
             return;
@@ -2616,6 +2623,11 @@ private:
         if (not syntax_tree.is_valid())
             return;
 
+        const auto& byte_index = syntax_tree.byte_index();
+        auto display_range = display_buffer.range();
+        uint32_t vis_start_byte = byte_index.byte_offset(display_range.begin);
+        uint32_t vis_end_byte = byte_index.byte_offset(display_range.end);
+
         auto& faces = context.context.faces();
 
         TSTreeCursor cursor = ts_tree_cursor_new(ts_tree_root_node(syntax_tree.tree()));
@@ -2628,6 +2640,27 @@ private:
 
             if (descended)
             {
+                // Skip subtrees entirely outside the visible range
+                uint32_t node_start = ts_node_start_byte(node);
+                uint32_t node_end = ts_node_end_byte(node);
+                if (node_end < vis_start_byte or node_start > vis_end_byte)
+                {
+                    // Skip this subtree — go to sibling or parent
+                    if (ts_tree_cursor_goto_next_sibling(&cursor))
+                    {
+                        descended = true;
+                        continue;
+                    }
+                    else if (ts_tree_cursor_goto_parent(&cursor))
+                    {
+                        depth--;
+                        descended = false;
+                        continue;
+                    }
+                    else
+                        break;
+                }
+
                 const char* type = ts_node_type(node);
                 if (type[0] != '\0' and type[1] == '\0' and
                     is_bracket_char(type[0]) and

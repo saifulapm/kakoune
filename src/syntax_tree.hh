@@ -75,6 +75,7 @@ private:
     String m_language_name;                // used to re-resolve config from registry
     LineByteIndex m_byte_index;
     size_t m_timestamp = 0;
+    size_t m_injection_timestamp = 0;
     Vector<InjectionLayer, MemoryDomain::Highlight> m_injection_layers;
 };
 

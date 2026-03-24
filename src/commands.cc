@@ -2929,6 +2929,7 @@ const CommandDesc tree_select_cmd = {
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
             TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -3006,6 +3007,7 @@ const CommandDesc tree_select_next_cmd = {
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
             TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -3078,6 +3080,7 @@ const CommandDesc tree_select_prev_cmd = {
             uint32_t cursor_byte = byte_index.byte_offset(cursor);
 
             TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_set_match_limit(qcursor, 256);
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
             TSNode best_node = {};
@@ -3339,6 +3342,7 @@ const CommandDesc tree_indent_cmd = {
 
         // Execute indent query on full tree
         TSQueryCursor* cursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
         // Build per-line indent adjustments
@@ -3376,29 +3380,38 @@ const CommandDesc tree_indent_cmd = {
         if (indent_width == 0)
             indent_width = tabstop;
 
-        ScopedEdition edition(context);
-        ScopedSelectionEdition selection_edition{context};
+        // Collect the set of lines to reindent (deduplicated, sorted)
         auto& selections = context.selections();
-        LineCount last_line = 0;
+        Vector<LineCount> lines_to_indent;
+        LineCount last_line = -1;
 
         for (auto& sel : selections)
         {
-            for (auto line = std::max(last_line, sel.min().line);
+            for (auto line = std::max(last_line + 1, sel.min().line);
                  line <= sel.max().line; ++line)
-            {
-                int target_level = std::max(0, indent_delta[(int)line]);
-                String indent_str(' ', CharCount{target_level * (int)indent_width});
+                lines_to_indent.push_back(line);
+            last_line = sel.max().line;
+        }
 
-                // Find end of existing leading whitespace
-                auto content = buffer[line];
-                ByteCount ws_end = 0;
-                while (ws_end < content.length() and
-                       (content[(int)ws_end] == ' ' or content[(int)ws_end] == '\t'))
-                    ws_end++;
+        // Apply edits bottom-to-top so earlier replacements don't shift
+        // the byte coordinates of later lines.
+        ScopedEdition edition(context);
+        ScopedSelectionEdition selection_edition{context};
 
-                buffer.replace(line, {line, ws_end}, indent_str);
-            }
-            last_line = sel.max().line + 1;
+        for (int i = (int)lines_to_indent.size() - 1; i >= 0; --i)
+        {
+            auto line = lines_to_indent[i];
+            int target_level = std::max(0, indent_delta[(int)line]);
+            String indent_str(' ', CharCount{target_level * (int)indent_width});
+
+            // Find end of existing leading whitespace
+            auto content = buffer[line];
+            ByteCount ws_end = 0;
+            while (ws_end < content.length() and
+                   (content[(int)ws_end] == ' ' or content[(int)ws_end] == '\t'))
+                ws_end++;
+
+            buffer.replace(line, {line, ws_end}, indent_str);
         }
     }
 };
