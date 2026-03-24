@@ -3508,6 +3508,311 @@ const CommandDesc tree_filter_cmd = {
     }
 };
 
+const CommandDesc tree_fold_cmd = {
+    "tree-fold",
+    nullptr,
+    "tree-fold: fold the AST node at cursor, collapsing inner lines to a placeholder",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& sel = context.selections().main();
+        TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+
+        // Walk up to find a multi-line node suitable for folding
+        while (not ts_node_is_null(node))
+        {
+            TSPoint start = ts_node_start_point(node);
+            TSPoint end = ts_node_end_point(node);
+            if (end.row > start.row + 1)  // spans at least 3 lines
+                break;
+            node = ts_node_parent(node);
+        }
+
+        if (ts_node_is_null(node))
+            throw runtime_error("no foldable node at cursor");
+
+        TSPoint start = ts_node_start_point(node);
+        TSPoint end = ts_node_end_point(node);
+
+        // Fold range: from end of first line to end of second-to-last line
+        // This keeps the opening line visible and the closing line visible
+        auto first_line = LineCount{(int)start.row};
+        auto last_line = LineCount{(int)end.row};
+
+        auto first_line_len = buffer[first_line].length();
+        // fold_begin: last char of the opening line (before newline)
+        BufferCoord fold_begin{first_line, first_line_len - 1};
+        // fold_end: end of the line before the closing line
+        BufferCoord fold_end{last_line - 1, buffer[last_line - 1].length() - 1};
+
+        // Build the range-spec string: "line.col,line.col|replacement"
+        // Coordinates are 1-based for option_from_string
+        auto range_str = format("{}.{},{}.{}|{{+comment@Default}}{{  ...  }}",
+                                fold_begin.line + 1, fold_begin.column + 1,
+                                fold_end.line + 1, fold_end.column + 1);
+
+        auto timestamp = format("{}", buffer.timestamp());
+
+        Option& opt = context.options().get_local_option("tree_sitter_folds");
+        opt.add_from_strings(ConstArrayView<String>{range_str});
+    }
+};
+
+const CommandDesc tree_unfold_cmd = {
+    "tree-unfold",
+    nullptr,
+    "tree-unfold: remove the fold at cursor position",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto cursor = context.selections().main().cursor();
+
+        // Get the option and update it to current timestamp
+        Option& opt = context.options().get_local_option("tree_sitter_folds");
+        opt.update(context);
+
+        // Get the current strings representation: "timestamp range1|text range2|text ..."
+        auto strs = opt.get_as_strings();
+        if (strs.size() <= 1)
+            throw runtime_error("no fold at cursor position");
+
+        bool found = false;
+        Vector<String> kept;
+        kept.push_back(format("{}", buffer.timestamp()));
+
+        for (size_t i = 1; i < strs.size(); ++i)
+        {
+            // Parse the range part (before |)
+            auto pipe = find(strs[i], '|');
+            if (pipe == strs[i].end())
+            {
+                kept.push_back(strs[i]);
+                continue;
+            }
+            StringView range_part{strs[i].begin(), pipe};
+
+            // Parse as InclusiveBufferRange to check containment
+            try
+            {
+                auto range = option_from_string(Meta::Type<InclusiveBufferRange>{}, range_part);
+                if (range.first <= cursor and cursor <= range.last)
+                {
+                    found = true;
+                    continue;  // skip this fold
+                }
+            }
+            catch (...)
+            {
+                // If parsing fails, keep the entry
+            }
+
+            kept.push_back(strs[i]);
+        }
+
+        if (not found)
+            throw runtime_error("no fold at cursor position");
+
+        opt.set_from_strings(ConstArrayView<String>{kept});
+    }
+};
+
+const CommandDesc tree_fold_all_cmd = {
+    "tree-fold-all",
+    nullptr,
+    "tree-fold-all <object>: fold all occurrences of a text object",
+    single_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        String capture_name = format("{}.inside", object_name);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target = find_capture_index(query, capture_name);
+
+        if (target == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        Vector<String> range_strs;
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
+        {
+            for (uint32_t c = 0; c < match.capture_count; ++c)
+            {
+                if (match.captures[c].index != target)
+                    continue;
+
+                TSNode node = match.captures[c].node;
+                TSPoint start = ts_node_start_point(node);
+                TSPoint end = ts_node_end_point(node);
+
+                // Only fold multi-line nodes
+                if (end.row <= start.row + 1)
+                    continue;
+
+                auto first_line = LineCount{(int)start.row};
+                auto last_line = LineCount{(int)end.row};
+
+                auto first_line_len = buffer[first_line].length();
+                BufferCoord fold_begin{first_line, first_line_len - 1};
+                BufferCoord fold_end{last_line - 1, buffer[last_line - 1].length() - 1};
+
+                range_strs.push_back(format("{}.{},{}.{}|{{+comment@Default}}{{  ...  }}",
+                                            fold_begin.line + 1, fold_begin.column + 1,
+                                            fold_end.line + 1, fold_end.column + 1));
+            }
+        }
+        ts_query_cursor_delete(cursor);
+
+        if (range_strs.empty())
+            throw runtime_error(format("no foldable '{}' found in buffer", object_name));
+
+        Option& opt = context.options().get_local_option("tree_sitter_folds");
+        opt.add_from_strings(ConstArrayView<String>{range_strs});
+    }
+};
+
+const CommandDesc tree_unfold_all_cmd = {
+    "tree-unfold-all",
+    nullptr,
+    "tree-unfold-all: remove all folds",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto timestamp = format("{}", buffer.timestamp());
+        Option& opt = context.options().get_local_option("tree_sitter_folds");
+        opt.set_from_strings(ConstArrayView<String>{timestamp});
+    }
+};
+
+const CommandDesc tree_update_context_cmd = {
+    "tree-update-context",
+    nullptr,
+    "tree-update-context: set tree_context option to the enclosing function/class name",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        if (not context.has_window())
+            return;
+
+        auto& buffer = context.buffer();
+        if (not has_syntax_tree(buffer))
+        {
+            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
+            return;
+        }
+
+        auto& syntax_tree = get_syntax_tree(buffer);
+        syntax_tree.update(buffer);
+
+        if (not syntax_tree.is_valid())
+        {
+            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
+            return;
+        }
+
+        // Get the first visible line from the window's display setup
+        auto first_visible_line = context.window().last_display_setup().first_line;
+
+        String context_str;
+
+        auto* config = syntax_tree.config();
+        if (config and config->textobject_query())
+        {
+            auto* query = config->textobject_query();
+            uint32_t func_capture = find_capture_index(query, "function.around");
+            uint32_t class_capture = find_capture_index(query, "class.around");
+
+            // Run the query and find the innermost function/class that
+            // starts before the first visible line
+            TSQueryCursor* qcursor = ts_query_cursor_new();
+            ts_query_cursor_set_match_limit(qcursor, 256);
+            ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+            TSNode best_node = {};
+            uint32_t best_start = 0;
+            bool found = false;
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint32_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != func_capture and
+                        match.captures[c].index != class_capture)
+                        continue;
+
+                    TSNode mnode = match.captures[c].node;
+                    TSPoint mstart = ts_node_start_point(mnode);
+                    TSPoint mend = ts_node_end_point(mnode);
+
+                    // Node must start before first visible line and end after it
+                    if ((int)mstart.row < (int)first_visible_line and
+                        (int)mend.row >= (int)first_visible_line and
+                        ts_node_start_byte(mnode) >= best_start)
+                    {
+                        best_start = ts_node_start_byte(mnode);
+                        best_node = mnode;
+                        found = true;
+                    }
+                }
+            }
+            ts_query_cursor_delete(qcursor);
+
+            if (found)
+            {
+                // Extract the first line of the enclosing node as context
+                TSPoint start = ts_node_start_point(best_node);
+                auto ctx_line = LineCount{(int)start.row};
+                if (ctx_line < buffer.line_count())
+                {
+                    auto content = buffer[ctx_line];
+                    // Trim trailing newline
+                    auto len = content.length();
+                    if (len > 0 and content[(int)(len - 1)] == '\n')
+                        len = len - 1;
+                    // Trim leading whitespace
+                    ByteCount ws = 0;
+                    while (ws < len and (content[(int)ws] == ' ' or content[(int)ws] == '\t'))
+                        ws++;
+                    context_str = String{content.substr(ws, len - ws)};
+                }
+            }
+        }
+
+        context.options().get_local_option("tree_context").set_from_strings(
+            ConstArrayView<String>{context_str});
+    }
+};
+
 const CommandDesc tree_indent_cmd = {
     "tree-indent",
     nullptr,
@@ -3804,6 +4109,11 @@ void register_commands()
     register_command(tree_shrink_cmd);
     register_command(tree_select_all_cmd);
     register_command(tree_filter_cmd);
+    register_command(tree_fold_cmd);
+    register_command(tree_unfold_cmd);
+    register_command(tree_fold_all_cmd);
+    register_command(tree_unfold_all_cmd);
+    register_command(tree_update_context_cmd);
     register_command(tree_indent_cmd);
     register_command(tree_indent_newline_cmd);
 }

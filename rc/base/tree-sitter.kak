@@ -51,13 +51,26 @@ set-face global ts_rainbow_4 blue
 set-face global ts_rainbow_5 magenta
 set-face global ts_rainbow_6 cyan
 
+# Code folding support
+declare-option -hidden range-specs tree_sitter_folds
+
+# Sticky context: shows enclosing function/class when scrolled past
+declare-option -hidden str tree_context ""
+
 # Auto-enable tree-sitter highlighting on filetype change
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
     try %{ add-highlighter window/tree-sitter tree-sitter }
+    try %{ add-highlighter window/tree-sitter-folds replace-ranges tree_sitter_folds }
 }
 
 hook -group tree-sitter-auto global WinSetOption filetype= %{
     try %{ remove-highlighter window/tree-sitter }
+    try %{ remove-highlighter window/tree-sitter-folds }
+}
+
+# Update sticky context on window display and cursor movement
+hook -group tree-sitter-context global NormalIdle .* %{
+    try %{ tree-update-context }
 }
 
 # Catch windows where filetype was set before this script loaded (autoload order)
@@ -66,6 +79,7 @@ hook -group tree-sitter-late-init global WinDisplay .* %{
     evaluate-commands %sh{
         if [ -n "$kak_opt_filetype" ]; then
             printf 'try %%{ add-highlighter window/tree-sitter tree-sitter }\n'
+            printf 'try %%{ add-highlighter window/tree-sitter-folds replace-ranges tree_sitter_folds }\n'
         fi
     }
     remove-hooks global tree-sitter-late-init
@@ -104,3 +118,7 @@ map global tree e ': tree-expand<ret>' -docstring 'expand selection'
 map global tree E ': tree-shrink<ret>' -docstring 'shrink selection'
 map global tree '*' ': tree-select-all function<ret>' -docstring 'select all functions'
 map global tree '/' ': tree-filter function<ret>' -docstring 'filter to functions'
+map global tree z  ': tree-fold<ret>' -docstring 'fold node'
+map global tree Z  ': tree-unfold<ret>' -docstring 'unfold at cursor'
+map global tree <a-z> ': tree-fold-all function<ret>' -docstring 'fold all functions'
+map global tree <a-Z> ': tree-unfold-all<ret>' -docstring 'unfold all'
