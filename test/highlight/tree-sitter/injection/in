@@ -1,0 +1,14 @@
+<html>
+<head>
+<style>
+body { color: red; }
+</style>
+</head>
+<body>
+<script>
+function hello() {
+    console.log("world");
+}
+</script>
+</body>
+</html>
