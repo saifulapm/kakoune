@@ -3112,6 +3112,203 @@ const CommandDesc tree_select_prev_cmd = {
     }
 };
 
+static void ensure_syntax_tree(const Buffer& buffer, SyntaxTree& syntax_tree)
+{
+    if (not has_syntax_tree(buffer))
+        throw runtime_error("no tree-sitter syntax tree for this buffer");
+
+    syntax_tree.update(buffer);
+
+    if (not syntax_tree.is_valid())
+        throw runtime_error("tree-sitter syntax tree is not valid");
+}
+
+static TSNode find_node_at_cursor(const SyntaxTree& syntax_tree, BufferCoord cursor)
+{
+    auto& byte_index = syntax_tree.byte_index();
+    uint32_t byte = byte_index.byte_offset(cursor);
+    return ts_node_named_descendant_for_byte_range(
+        ts_tree_root_node(syntax_tree.tree()), byte, byte);
+}
+
+const CommandDesc tree_parent_cmd = {
+    "tree-parent",
+    nullptr,
+    "tree-parent: select parent AST node",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            TSNode parent = ts_node_parent(node);
+            if (ts_node_is_null(parent))
+                new_selections.push_back(sel);
+            else
+                new_selections.push_back(node_to_selection(buffer, parent));
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_first_child_cmd = {
+    "tree-first-child",
+    nullptr,
+    "tree-first-child: select first named child AST node",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node) or ts_node_named_child_count(node) == 0)
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            TSNode child = ts_node_named_child(node, 0);
+            if (ts_node_is_null(child))
+                new_selections.push_back(sel);
+            else
+                new_selections.push_back(node_to_selection(buffer, child));
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_next_sibling_cmd = {
+    "tree-next-sibling",
+    nullptr,
+    "tree-next-sibling: select next named sibling AST node",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            TSNode sibling = ts_node_next_named_sibling(node);
+            if (ts_node_is_null(sibling))
+                new_selections.push_back(sel);
+            else
+                new_selections.push_back(node_to_selection(buffer, sibling));
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_prev_sibling_cmd = {
+    "tree-prev-sibling",
+    nullptr,
+    "tree-prev-sibling: select previous named sibling AST node",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            TSNode sibling = ts_node_prev_named_sibling(node);
+            if (ts_node_is_null(sibling))
+                new_selections.push_back(sel);
+            else
+                new_selections.push_back(node_to_selection(buffer, sibling));
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_select_node_cmd = {
+    "tree-select-node",
+    nullptr,
+    "tree-select-node: select the AST node at cursor position",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+                new_selections.push_back(sel);
+            else
+                new_selections.push_back(node_to_selection(buffer, node));
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -3186,6 +3383,11 @@ void register_commands()
     register_command(tree_select_cmd);
     register_command(tree_select_next_cmd);
     register_command(tree_select_prev_cmd);
+    register_command(tree_parent_cmd);
+    register_command(tree_first_child_cmd);
+    register_command(tree_next_sibling_cmd);
+    register_command(tree_prev_sibling_cmd);
+    register_command(tree_select_node_cmd);
 }
 
 }
