@@ -1,9 +1,11 @@
 #include "language_registry.hh"
 
+#include "buffer.hh"
 #include "debug.hh"
 #include "exception.hh"
 #include "file.hh"
 #include "format.hh"
+#include "regex.hh"
 
 #include <dlfcn.h>
 
@@ -142,6 +144,43 @@ const LanguageConfig* LanguageRegistry::get(StringView name)
     return load_language(name);
 }
 
+static String node_text_for_predicate(TSNode node, const Buffer& buffer)
+{
+    const TSPoint start = ts_node_start_point(node);
+    const TSPoint end = ts_node_end_point(node);
+
+    if (start.row >= (uint32_t)(int)buffer.line_count())
+        return {};
+
+    // Fast path: single-line node (common case for identifiers/keywords)
+    if (start.row == end.row)
+    {
+        const StringView line = buffer[LineCount{(int)start.row}];
+        auto col_start = ByteCount{(int)start.column};
+        auto col_end = ByteCount{(int)end.column};
+        if (col_end > line.length())
+            col_end = line.length();
+        if (col_start >= col_end)
+            return {};
+        return line.substr(col_start, col_end - col_start).str();
+    }
+
+    // Multi-line: concatenate
+    String result;
+    for (uint32_t row = start.row; row <= end.row
+         and row < (uint32_t)(int)buffer.line_count(); ++row)
+    {
+        const StringView line = buffer[LineCount{(int)row}];
+        const auto col_start = ByteCount{(row == start.row) ? (int)start.column : 0};
+        const auto col_end = (row == end.row)
+            ? ByteCount{(int)end.column}
+            : line.length();
+        if (col_start < col_end and col_end <= line.length())
+            result += line.substr(col_start, col_end - col_start);
+    }
+    return result;
+}
+
 static void parse_single_predicate(const TSQuery* query,
                                    const TSQueryPredicateStep* steps,
                                    uint32_t count,
@@ -266,6 +305,118 @@ PatternPredicates parse_query_predicates(const TSQuery* query)
         }
     }
     return result;
+}
+
+bool predicates_match(const Vector<QueryPredicate>& predicates,
+                      const TSQueryMatch& match,
+                      const Buffer& buffer)
+{
+    for (const auto& pred : predicates)
+    {
+        // Find the captured node for this predicate
+        TSNode node = {};
+        bool found = false;
+        for (uint16_t c = 0; c < match.capture_count; ++c)
+        {
+            if (match.captures[c].index == pred.capture_id)
+            {
+                node = match.captures[c].node;
+                found = true;
+                break;
+            }
+        }
+        if (not found)
+            return false;
+
+        String text = node_text_for_predicate(node, buffer);
+
+        switch (pred.type)
+        {
+        case PredicateType::Eq:
+            if (pred.capture_id2)
+            {
+                // capture-vs-capture: find second capture
+                bool found2 = false;
+                String text2;
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index == *pred.capture_id2)
+                    {
+                        text2 = node_text_for_predicate(match.captures[c].node, buffer);
+                        found2 = true;
+                        break;
+                    }
+                }
+                if (not found2 or text != text2)
+                    return false;
+            }
+            else if (text != pred.value)
+                return false;
+            break;
+
+        case PredicateType::NotEq:
+            if (pred.capture_id2)
+            {
+                bool found2 = false;
+                String text2;
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index == *pred.capture_id2)
+                    {
+                        text2 = node_text_for_predicate(match.captures[c].node, buffer);
+                        found2 = true;
+                        break;
+                    }
+                }
+                if (not found2)
+                    return false;  // missing capture -> conservative fail
+                if (text == text2)
+                    return false;
+            }
+            else if (text == pred.value)
+                return false;
+            break;
+
+        case PredicateType::Match:
+            if (pred.regex and not regex_search(text.begin(), text.end(),
+                                                text.begin(), text.end(), *pred.regex))
+                return false;
+            break;
+
+        case PredicateType::NotMatch:
+            if (pred.regex and regex_search(text.begin(), text.end(),
+                                            text.begin(), text.end(), *pred.regex))
+                return false;
+            break;
+
+        case PredicateType::AnyOf:
+        {
+            bool in_set = false;
+            for (const auto& v : pred.values)
+            {
+                if (text == v)
+                {
+                    in_set = true;
+                    break;
+                }
+            }
+            if (not in_set)
+                return false;
+            break;
+        }
+
+        case PredicateType::NotAnyOf:
+        {
+            for (const auto& v : pred.values)
+            {
+                if (text == v)
+                    return false;
+            }
+            break;
+        }
+        }
+    }
+    return true;
 }
 
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
