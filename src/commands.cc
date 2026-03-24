@@ -3406,25 +3406,69 @@ const CommandDesc tree_shrink_cmd = {
                 node = parent;
             }
 
-            // Find the first named child that contains the cursor
-            uint32_t cursor_byte = byte_index.byte_offset(sel.cursor());
+            // Find the largest named child that is strictly smaller than the current node.
+            // We pick the child closest to the selection's anchor (start), since after
+            // tree-expand the cursor sits at the end boundary which is often a
+            // closing delimiter with no named children.
+            uint32_t anchor_byte = byte_index.byte_offset(sel.min());
+            uint32_t node_size = ts_node_end_byte(node) - ts_node_start_byte(node);
             bool found_child = false;
+            TSNode best_child = {};
+            uint32_t best_size = 0;
+
             uint32_t child_count = ts_node_named_child_count(node);
             for (uint32_t i = 0; i < child_count; ++i)
             {
                 TSNode child = ts_node_named_child(node, i);
                 uint32_t child_start = ts_node_start_byte(child);
                 uint32_t child_end = ts_node_end_byte(child);
+                uint32_t child_size = child_end - child_start;
 
-                // Child must contain cursor AND be strictly smaller than current node
-                if (child_start <= cursor_byte and cursor_byte < child_end and
-                    (child_end - child_start) < (ts_node_end_byte(node) - ts_node_start_byte(node)))
+                // Child must contain anchor and be strictly smaller
+                if (child_start <= anchor_byte and anchor_byte < child_end and
+                    child_size < node_size)
                 {
-                    new_selections.push_back(node_to_selection(buffer, child));
-                    found_child = true;
-                    break;
+                    // Prefer the largest child containing anchor (most useful shrink)
+                    if (child_size > best_size)
+                    {
+                        best_child = child;
+                        best_size = child_size;
+                        found_child = true;
+                    }
                 }
             }
+
+            // If no child contains anchor, try any child containing cursor
+            if (not found_child)
+            {
+                uint32_t cursor_byte = byte_index.byte_offset(sel.cursor());
+                for (uint32_t i = 0; i < child_count; ++i)
+                {
+                    TSNode child = ts_node_named_child(node, i);
+                    uint32_t child_start = ts_node_start_byte(child);
+                    uint32_t child_end = ts_node_end_byte(child);
+                    uint32_t child_size = child_end - child_start;
+
+                    if (child_start <= cursor_byte and cursor_byte < child_end and
+                        child_size < node_size and child_size > best_size)
+                    {
+                        best_child = child;
+                        best_size = child_size;
+                        found_child = true;
+                    }
+                }
+            }
+
+            // Last resort: just pick the first named child
+            if (not found_child and child_count > 0)
+            {
+                best_child = ts_node_named_child(node, 0);
+                found_child = true;
+            }
+
+            if (found_child)
+                new_selections.push_back(node_to_selection(buffer, best_child));
+            else
 
             if (not found_child)
                 new_selections.push_back(sel);
