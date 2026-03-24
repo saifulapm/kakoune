@@ -2433,14 +2433,7 @@ const HighlighterDesc tree_sitter_desc = {
 struct TreeSitterHighlighter : Highlighter
 {
     TreeSitterHighlighter()
-        : Highlighter{HighlightPass::Colorize},
-          m_cursor(ts_query_cursor_new()) {}
-
-    ~TreeSitterHighlighter() override
-    {
-        if (m_cursor)
-            ts_query_cursor_delete(m_cursor);
-    }
+        : Highlighter{HighlightPass::Colorize} {}
 
     static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
     {
@@ -2448,7 +2441,50 @@ struct TreeSitterHighlighter : Highlighter
     }
 
 private:
-    mutable TSQueryCursor* m_cursor;
+    // Run a highlight query and apply faces to the display buffer
+    void run_highlights(TSQuery* query, TSNode root,
+                        const Vector<String>& capture_faces,
+                        uint32_t start_byte, uint32_t end_byte,
+                        HighlightContext& context, DisplayBuffer& display_buffer)
+    {
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        if (not cursor)
+            return;
+
+        ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, root);
+
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
+        {
+            const TSQueryCapture& capture = match.captures[capture_index];
+
+            if (capture.index >= (uint32_t)capture_faces.size())
+                continue;
+
+            const auto& face_name = capture_faces[(int)capture.index];
+
+            TSPoint start_point = ts_node_start_point(capture.node);
+            TSPoint end_point = ts_node_end_point(capture.node);
+
+            BufferCoord begin_coord{LineCount{(int)start_point.row},
+                                    ByteCount{(int)start_point.column}};
+            BufferCoord end_coord{LineCount{(int)end_point.row},
+                                  ByteCount{(int)end_point.column}};
+
+            try
+            {
+                Face face = context.context.faces()[face_name];
+                highlight_range(display_buffer, begin_coord, end_coord, false,
+                    apply_face(face));
+            }
+            catch (runtime_error&) {}
+        }
+
+        ts_query_cursor_delete(cursor);
+    }
 
     void do_highlight(HighlightContext context, DisplayBuffer& display_buffer, BufferRange range) override
     {
@@ -2480,84 +2516,34 @@ private:
         auto& syntax_tree = get_syntax_tree(buffer);
         syntax_tree.update(buffer);
 
-        if (not syntax_tree.is_valid() or not m_cursor)
+        if (not syntax_tree.is_valid())
             return;
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
         uint32_t start_byte = byte_index.byte_offset(display_range.begin);
         uint32_t end_byte = byte_index.byte_offset(display_range.end);
-        ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
 
-        TSNode root = ts_tree_root_node(syntax_tree.tree());
-        ts_query_cursor_exec(m_cursor, config->highlight_query(), root);
-        TSQueryMatch match;
-        uint32_t capture_index;
-        while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
-        {
-            const TSQueryCapture& capture = match.captures[capture_index];
-
-            if (capture.index >= config->capture_faces().size())
-                continue;
-
-            const auto& face_name = config->capture_faces()[capture.index];
-
-            TSPoint start_point = ts_node_start_point(capture.node);
-            TSPoint end_point = ts_node_end_point(capture.node);
-
-            BufferCoord begin_coord{LineCount{(int)start_point.row},
-                                    ByteCount{(int)start_point.column}};
-            BufferCoord end_coord{LineCount{(int)end_point.row},
-                                  ByteCount{(int)end_point.column}};
-
-            try
-            {
-                Face face = context.context.faces()[face_name];
-                highlight_range(display_buffer, begin_coord, end_coord, false,
-                    apply_face(face));
-            }
-            catch (runtime_error&) {}
-        }
+        // Highlight root layer
+        run_highlights(config->highlight_query(),
+                       ts_tree_root_node(syntax_tree.tree()),
+                       config->capture_faces(),
+                       start_byte, end_byte,
+                       context, display_buffer);
 
         // Detect and highlight injection layers
         syntax_tree.detect_injections(buffer);
 
         for (auto& layer : syntax_tree.injection_layers())
         {
-            if (not layer.tree or not layer.config)
+            if (not layer.tree or not layer.config or not layer.config->highlight_query())
                 continue;
 
-            auto* inj_query = layer.config->highlight_query();
-            if (not inj_query)
-                continue;
-
-            ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
-            ts_query_cursor_exec(m_cursor, inj_query, ts_tree_root_node(layer.tree));
-
-            TSQueryMatch inj_match;
-            uint32_t inj_capture_index;
-
-            while (ts_query_cursor_next_capture(m_cursor, &inj_match, &inj_capture_index))
-            {
-                const TSQueryCapture& inj_capture = inj_match.captures[inj_capture_index];
-
-                if (inj_capture.index >= layer.config->capture_faces().size())
-                    continue;
-
-                const auto& inj_face_name = layer.config->capture_faces()[inj_capture.index];
-
-                TSPoint inj_start = ts_node_start_point(inj_capture.node);
-                TSPoint inj_end   = ts_node_end_point(inj_capture.node);
-
-                BufferCoord inj_begin_coord{LineCount{(int)inj_start.row},
-                                            ByteCount{(int)inj_start.column}};
-                BufferCoord inj_end_coord{LineCount{(int)inj_end.row},
-                                          ByteCount{(int)inj_end.column}};
-
-                Face inj_face = context.context.faces()[inj_face_name];
-                highlight_range(display_buffer, inj_begin_coord, inj_end_coord, false,
-                    apply_face(inj_face));
-            }
+            run_highlights(layer.config->highlight_query(),
+                           ts_tree_root_node(layer.tree),
+                           layer.config->capture_faces(),
+                           start_byte, end_byte,
+                           context, display_buffer);
         }
     }
 };
