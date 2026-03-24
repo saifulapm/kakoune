@@ -3552,29 +3552,27 @@ const CommandDesc tree_fold_cmd = {
         TSPoint start = ts_node_start_point(node);
         TSPoint end = ts_node_end_point(node);
 
-        // Fold range: from end of first line to end of second-to-last line
-        // This keeps the opening line visible and the closing line visible
+        // Fold range: from start of second line to start of closing line.
+        // Opening line stays visible, inner lines replaced with "...",
+        // closing line stays on its own line.
         auto first_line = LineCount{(int)start.row};
         auto last_line = LineCount{(int)end.row};
 
-        auto first_line_len = buffer[first_line].length();
-        auto fold_end_line_len = buffer[last_line - 1].length();
+        // fold_begin: start of the line after the opening line
+        BufferCoord fold_begin{first_line + 1, 0_byte};
+        // fold_end: last char before closing line's content
+        // (end of the line before the closing line)
+        auto prev_line_len = buffer[last_line - 1].length();
+        if (prev_line_len == 0)
+            throw runtime_error("cannot fold — empty boundary line");
+        BufferCoord fold_end{last_line - 1, prev_line_len - 1};
 
-        if (first_line_len == 0 or fold_end_line_len == 0)
-            throw runtime_error("cannot fold — empty boundary lines");
-
-        // fold_begin: last char of the opening line (before newline)
-        BufferCoord fold_begin{first_line, first_line_len - 1};
-        // fold_end: end of the line before the closing line
-        BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
-
-        // Build the range-spec string: "line.col,line.col|{face}text"
-        // Coordinates are 1-based for option parsing
-        // Use String concatenation to avoid format() interpreting {} as args
+        // Build range-spec: "line.col,line.col|{face}text"
+        // 1-based coordinates for option parsing
         String range_str = format("{}.{},{}.{}|",
                                   fold_begin.line + 1, fold_begin.column + 1,
                                   fold_end.line + 1, fold_end.column + 1);
-        range_str += "{comment}  ...  ";
+        range_str += "{comment} ... ";
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
         opt.add_from_strings(ConstArrayView<String>{range_str});
@@ -3690,19 +3688,17 @@ const CommandDesc tree_fold_all_cmd = {
                 auto first_line = LineCount{(int)start.row};
                 auto last_line = LineCount{(int)end.row};
 
-                auto first_line_len = buffer[first_line].length();
-                auto fold_end_line_len = buffer[last_line - 1].length();
-
-                if (first_line_len == 0 or fold_end_line_len == 0)
+                auto prev_line_len = buffer[last_line - 1].length();
+                if (prev_line_len == 0)
                     continue;
 
-                BufferCoord fold_begin{first_line, first_line_len - 1};
-                BufferCoord fold_end{last_line - 1, fold_end_line_len - 1};
+                BufferCoord fold_begin{first_line + 1, 0_byte};
+                BufferCoord fold_end{last_line - 1, prev_line_len - 1};
 
                 String rs = format("{}.{},{}.{}|",
                                    fold_begin.line + 1, fold_begin.column + 1,
                                    fold_end.line + 1, fold_end.column + 1);
-                rs += "{comment}  ...  ";
+                rs += "{comment} ... ";
                 range_strs.push_back(std::move(rs));
             }
         }
@@ -3824,7 +3820,13 @@ const CommandDesc tree_update_context_cmd = {
                     ByteCount ws = 0;
                     while (ws < len and (content[(int)ws] == ' ' or content[(int)ws] == '\t'))
                         ws++;
-                    context_str = String{content.substr(ws, len - ws)};
+                    // Trim trailing '{' and whitespace (show just the signature)
+                    auto end = len;
+                    while (end > ws and (content[(int)(end - 1)] == '{' or
+                                         content[(int)(end - 1)] == ' ' or
+                                         content[(int)(end - 1)] == '\t'))
+                        end--;
+                    context_str = String{content.substr(ws, end - ws)};
                 }
             }
         }
