@@ -2630,9 +2630,19 @@ private:
 
         auto& faces = context.context.faces();
 
+        // Collect all bracket nodes from the tree, then sort by position
+        // and assign rainbow depth based on bracket nesting (not AST depth)
+        struct BracketInfo
+        {
+            BufferCoord begin;
+            BufferCoord end;
+            bool is_open;
+        };
+        Vector<BracketInfo, MemoryDomain::Highlight> brackets;
+
         TSTreeCursor cursor = ts_tree_cursor_new(ts_tree_root_node(syntax_tree.tree()));
 
-        int depth = 0;
+        int tree_depth = 0;
         bool descended = true;
 
         do {
@@ -2640,12 +2650,10 @@ private:
 
             if (descended)
             {
-                // Skip subtrees entirely outside the visible range
                 uint32_t node_start = ts_node_start_byte(node);
                 uint32_t node_end = ts_node_end_byte(node);
                 if (node_end < vis_start_byte or node_start > vis_end_byte)
                 {
-                    // Skip this subtree — go to sibling or parent
                     if (ts_tree_cursor_goto_next_sibling(&cursor))
                     {
                         descended = true;
@@ -2653,7 +2661,7 @@ private:
                     }
                     else if (ts_tree_cursor_goto_parent(&cursor))
                     {
-                        depth--;
+                        tree_depth--;
                         descended = false;
                         continue;
                     }
@@ -2666,35 +2674,20 @@ private:
                     is_bracket_char(type[0]) and
                     ts_node_child_count(node) == 0)
                 {
-                    bool is_open = is_open_bracket(type[0]);
-                    int bracket_depth = is_open ? depth : depth - 1;
-                    if (bracket_depth < 0)
-                        bracket_depth = 0;
-                    int color_index = bracket_depth % 6;
-
-                    String face_name = format("ts_rainbow_{}", color_index + 1);
-
                     TSPoint start_pt = ts_node_start_point(node);
                     TSPoint end_pt = ts_node_end_point(node);
 
-                    BufferCoord begin{LineCount{(int)start_pt.row},
-                                      ByteCount{(int)start_pt.column}};
-                    BufferCoord end{LineCount{(int)end_pt.row},
-                                    ByteCount{(int)end_pt.column}};
-
-                    try
-                    {
-                        Face face = faces[face_name];
-                        highlight_range(display_buffer, begin, end, false,
-                                        apply_face(face));
-                    }
-                    catch (runtime_error&) {}
+                    brackets.push_back({
+                        {LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}},
+                        {LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}},
+                        is_open_bracket(type[0])
+                    });
                 }
             }
 
             if (descended and ts_tree_cursor_goto_first_child(&cursor))
             {
-                depth++;
+                tree_depth++;
                 descended = true;
             }
             else if (ts_tree_cursor_goto_next_sibling(&cursor))
@@ -2703,7 +2696,7 @@ private:
             }
             else if (ts_tree_cursor_goto_parent(&cursor))
             {
-                depth--;
+                tree_depth--;
                 descended = false;
             }
             else
@@ -2713,6 +2706,38 @@ private:
         } while (true);
 
         ts_tree_cursor_delete(&cursor);
+
+        // Now color brackets by nesting depth.
+        // Walk through collected brackets in order, track nesting with a counter.
+        // Opening bracket gets current depth, closing bracket gets depth-1.
+        // Both brackets of a pair get the same color.
+        int nesting = 0;
+        for (auto& b : brackets)
+        {
+            int color_depth;
+            if (b.is_open)
+            {
+                color_depth = nesting;
+                nesting++;
+            }
+            else
+            {
+                nesting--;
+                if (nesting < 0) nesting = 0;
+                color_depth = nesting;
+            }
+
+            int color_index = color_depth % 6;
+            String face_name = format("ts_rainbow_{}", color_index + 1);
+
+            try
+            {
+                Face face = faces[face_name];
+                highlight_range(display_buffer, b.begin, b.end, false,
+                                apply_face(face));
+            }
+            catch (runtime_error&) {}
+        }
     }
 };
 
