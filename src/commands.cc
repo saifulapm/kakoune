@@ -3519,6 +3519,45 @@ const CommandDesc tree_filter_cmd = {
     }
 };
 
+// Build a fold range-spec string for the given line range.
+// Returns empty Optional if the range is not foldable.
+static Optional<String> build_fold_spec(const Buffer& buffer,
+                                        LineCount first_line, LineCount last_line)
+{
+    if (first_line + 1 >= buffer.line_count())
+        return {};
+
+    auto prev_line_len = buffer[last_line - 1].length();
+    if (prev_line_len == 0)
+        return {};
+
+    BufferCoord fold_begin{first_line + 1, 0_byte};
+    BufferCoord fold_end = buffer.char_prev({last_line, 0_byte});
+
+    int folded_lines = (int)(last_line - first_line) - 1;
+    auto inner_line = buffer[first_line + 1];
+    ByteCount ws = 0;
+    while (ws < inner_line.length() and
+           (inner_line[(int)ws] == ' ' or inner_line[(int)ws] == '\t'))
+        ws++;
+    auto len = inner_line.length();
+    if (len > 0 and inner_line[(int)(len - 1)] == '\n')
+        len--;
+    String preview{inner_line.substr(ws, std::min(len - ws, 40_byte))};
+    String indent{inner_line.substr(0_byte, ws)};
+    if (not indent.empty() and indent.back() == '\n')
+        indent = String{indent.substr(0_byte, indent.length() - 1)};
+
+    String rs = format("{}.{},{}.{}|",
+                       fold_begin.line + 1, fold_begin.column + 1,
+                       fold_end.line + 1, fold_end.column + 1);
+    rs += "{ts_fold}";
+    rs += indent;
+    rs += format("+-- {} {}: {}\n", folded_lines,
+                 folded_lines == 1 ? "line" : "lines", preview);
+    return rs;
+}
+
 const CommandDesc tree_fold_cmd = {
     "tree-fold",
     nullptr,
@@ -3552,50 +3591,15 @@ const CommandDesc tree_fold_cmd = {
         TSPoint start = ts_node_start_point(node);
         TSPoint end = ts_node_end_point(node);
 
-        // Neovim-style fold: replace inner lines with a summary line
-        // showing line count and first line preview
         auto first_line = LineCount{(int)start.row};
         auto last_line = LineCount{(int)end.row};
-        int folded_lines = (int)(last_line - first_line) - 1;
 
-        // Get first inner line content for preview
-        auto inner_line = buffer[first_line + 1];
-        ByteCount inner_ws = 0;
-        while (inner_ws < inner_line.length() and
-               (inner_line[(int)inner_ws] == ' ' or inner_line[(int)inner_ws] == '\t'))
-            inner_ws++;
-        auto inner_len = inner_line.length();
-        if (inner_len > 0 and inner_line[(int)(inner_len - 1)] == '\n')
-            inner_len--;
-        String preview{inner_line.substr(inner_ws, std::min(inner_len - inner_ws, 40_byte))};
-
-        // Fold range: from start of second line to just before the closing line
-        // Use last_line col 0 as exclusive end, but range-specs are inclusive
-        // so use the last char of the previous line (including its newline)
-        BufferCoord fold_begin{first_line + 1, 0_byte};
-        auto last_inner_line = last_line - 1;
-        auto last_inner_len = buffer[last_inner_line].length();
-        if (last_inner_len == 0)
-            throw runtime_error("cannot fold — empty boundary line");
-        // Include the newline of the last inner line so closing line
-        // starts on its own line. Use char_prev of last_line col 0.
-        BufferCoord fold_end = buffer.char_prev({last_line, 0_byte});
-
-        // Build fold text with proper indentation matching the inner line
-        String indent{inner_line.substr(0_byte, inner_ws)};
-        // Remove newline from indent if present
-        if (not indent.empty() and indent.back() == '\n')
-            indent = String{indent.substr(0_byte, indent.length() - 1)};
-
-        String range_str = format("{}.{},{}.{}|",
-                                  fold_begin.line + 1, fold_begin.column + 1,
-                                  fold_end.line + 1, fold_end.column + 1);
-        range_str += "{ts_fold}";
-        range_str += indent;
-        range_str += format("+-- {} lines: {}\n", folded_lines, preview);
+        auto fold_spec = build_fold_spec(buffer, first_line, last_line);
+        if (not fold_spec)
+            throw runtime_error("cannot fold — node at buffer boundary");
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
-        opt.add_from_strings(ConstArrayView<String>{range_str});
+        opt.add_from_strings(ConstArrayView<String>{*fold_spec});
     }
 };
 
@@ -3676,7 +3680,7 @@ const CommandDesc tree_fold_all_cmd = {
         ensure_textobject_query(buffer, syntax_tree);
 
         auto object_name = parser[0];
-        String capture_name = format("{}.inside", object_name);
+        String capture_name = format("{}.around", object_name);
 
         auto* query = syntax_tree.config()->textobject_query();
         uint32_t target = find_capture_index(query, capture_name);
@@ -3708,34 +3712,9 @@ const CommandDesc tree_fold_all_cmd = {
                 auto first_line = LineCount{(int)start.row};
                 auto last_line = LineCount{(int)end.row};
 
-                auto prev_line_len = buffer[last_line - 1].length();
-                if (prev_line_len == 0)
-                    continue;
-
-                BufferCoord fold_begin{first_line + 1, 0_byte};
-                BufferCoord fold_end = buffer.char_prev({last_line, 0_byte});
-
-                int folded_lines = (int)(last_line - first_line) - 1;
-                auto inner_line = buffer[first_line + 1];
-                ByteCount iws = 0;
-                while (iws < inner_line.length() and
-                       (inner_line[(int)iws] == ' ' or inner_line[(int)iws] == '\t'))
-                    iws++;
-                auto ilen = inner_line.length();
-                if (ilen > 0 and inner_line[(int)(ilen - 1)] == '\n')
-                    ilen--;
-                String preview{inner_line.substr(iws, std::min(ilen - iws, 40_byte))};
-                String indent{inner_line.substr(0_byte, iws)};
-                if (not indent.empty() and indent.back() == '\n')
-                    indent = String{indent.substr(0_byte, indent.length() - 1)};
-
-                String rs = format("{}.{},{}.{}|",
-                                   fold_begin.line + 1, fold_begin.column + 1,
-                                   fold_end.line + 1, fold_end.column + 1);
-                rs += "{ts_fold}";
-                rs += indent;
-                rs += format("+-- {} lines: {}\n", folded_lines, preview);
-                range_strs.push_back(std::move(rs));
+                auto fold_spec = build_fold_spec(buffer, first_line, last_line);
+                if (fold_spec)
+                    range_strs.push_back(std::move(*fold_spec));
             }
         }
 
@@ -3780,7 +3759,7 @@ const CommandDesc tree_update_context_cmd = {
         auto& buffer = context.buffer();
         if (not has_syntax_tree(buffer))
         {
-            context.options()["tree_context"].set_from_strings(ConstArrayView<String>{""});
+            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
             return;
         }
 
@@ -3789,7 +3768,7 @@ const CommandDesc tree_update_context_cmd = {
 
         if (not syntax_tree.is_valid())
         {
-            context.options()["tree_context"].set_from_strings(ConstArrayView<String>{""});
+            context.options().get_local_option("tree_context").set_from_strings(ConstArrayView<String>{""});
             return;
         }
 
@@ -3805,69 +3784,71 @@ const CommandDesc tree_update_context_cmd = {
             uint32_t func_capture = find_capture_index(query, "function.around");
             uint32_t class_capture = find_capture_index(query, "class.around");
 
-            // Run the query and find the innermost function/class that
-            // starts before the first visible line
-            QueryCursorGuard qcursor;
-            ts_query_cursor_set_match_limit(qcursor, 256);
-            ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+            // O(depth): find node at visible line, walk up looking for
+            // a function/class ancestor that starts above the viewport.
+            auto& byte_index = syntax_tree.byte_index();
+            uint32_t visible_byte = byte_index.byte_offset({first_visible_line, 0_byte});
+            TSNode node = ts_node_named_descendant_for_byte_range(
+                ts_tree_root_node(syntax_tree.tree()), visible_byte, visible_byte);
 
-            TSNode best_node = {};
-            uint32_t best_start = 0;
-            bool found = false;
-
-            TSQueryMatch match;
-            while (ts_query_cursor_next_match(qcursor, &match))
+            while (not ts_node_is_null(node))
             {
-                for (uint32_t c = 0; c < match.capture_count; ++c)
+                TSPoint nstart = ts_node_start_point(node);
+                if ((int)nstart.row < (int)first_visible_line)
                 {
-                    if (match.captures[c].index != func_capture and
-                        match.captures[c].index != class_capture)
-                        continue;
+                    // Check if this node matches a function/class capture
+                    QueryCursorGuard qcursor;
+                    ts_query_cursor_set_match_limit(qcursor, 64);
+                    ts_query_cursor_set_byte_range(qcursor,
+                        ts_node_start_byte(node), ts_node_end_byte(node));
+                    ts_query_cursor_exec(qcursor, query,
+                        ts_tree_root_node(syntax_tree.tree()));
 
-                    TSNode mnode = match.captures[c].node;
-                    TSPoint mstart = ts_node_start_point(mnode);
-                    TSPoint mend = ts_node_end_point(mnode);
-
-                    // Node must start before first visible line and end after it
-                    if ((int)mstart.row < (int)first_visible_line and
-                        (int)mend.row >= (int)first_visible_line and
-                        ts_node_start_byte(mnode) >= best_start)
+                    TSQueryMatch match;
+                    bool is_context_node = false;
+                    while (ts_query_cursor_next_match(qcursor, &match))
                     {
-                        best_start = ts_node_start_byte(mnode);
-                        best_node = mnode;
-                        found = true;
+                        for (uint32_t c = 0; c < match.capture_count; ++c)
+                        {
+                            if ((match.captures[c].index == func_capture or
+                                 match.captures[c].index == class_capture) and
+                                ts_node_eq(match.captures[c].node, node))
+                            {
+                                is_context_node = true;
+                                break;
+                            }
+                        }
+                        if (is_context_node)
+                            break;
+                    }
+
+                    if (is_context_node)
+                    {
+                        auto ctx_line = LineCount{(int)nstart.row};
+                        if (ctx_line < buffer.line_count())
+                        {
+                            auto content = buffer[ctx_line];
+                            auto len = content.length();
+                            if (len > 0 and content[(int)(len - 1)] == '\n')
+                                len = len - 1;
+                            ByteCount ws = 0;
+                            while (ws < len and (content[(int)ws] == ' ' or content[(int)ws] == '\t'))
+                                ws++;
+                            auto end = len;
+                            while (end > ws and (content[(int)(end - 1)] == '{' or
+                                                 content[(int)(end - 1)] == ' ' or
+                                                 content[(int)(end - 1)] == '\t'))
+                                end--;
+                            context_str = String{content.substr(ws, end - ws)};
+                        }
+                        break;
                     }
                 }
-            }
-
-            if (found)
-            {
-                // Extract the first line of the enclosing node as context
-                TSPoint start = ts_node_start_point(best_node);
-                auto ctx_line = LineCount{(int)start.row};
-                if (ctx_line < buffer.line_count())
-                {
-                    auto content = buffer[ctx_line];
-                    // Trim trailing newline
-                    auto len = content.length();
-                    if (len > 0 and content[(int)(len - 1)] == '\n')
-                        len = len - 1;
-                    // Trim leading whitespace
-                    ByteCount ws = 0;
-                    while (ws < len and (content[(int)ws] == ' ' or content[(int)ws] == '\t'))
-                        ws++;
-                    // Trim trailing '{' and whitespace (show just the signature)
-                    auto end = len;
-                    while (end > ws and (content[(int)(end - 1)] == '{' or
-                                         content[(int)(end - 1)] == ' ' or
-                                         content[(int)(end - 1)] == '\t'))
-                        end--;
-                    context_str = String{content.substr(ws, end - ws)};
-                }
+                node = ts_node_parent(node);
             }
         }
 
-        context.options()["tree_context"].set_from_strings(
+        context.options().get_local_option("tree_context").set_from_strings(
             ConstArrayView<String>{context_str});
     }
 };
