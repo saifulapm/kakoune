@@ -2459,7 +2459,8 @@ static String ts_node_text(TSNode node, const Buffer& buffer)
 // ts_variable face during highlighting.
 static HashSet<uint32_t> build_local_references(
     TSQuery* locals_query, TSNode root, const Buffer& buffer,
-    uint32_t start_byte = 0, uint32_t end_byte = UINT32_MAX)
+    uint32_t start_byte, uint32_t end_byte,
+    const PatternPredicates& locals_preds)
 {
     HashSet<uint32_t> local_ref_positions;
 
@@ -2509,6 +2510,12 @@ static HashSet<uint32_t> build_local_references(
     TSQueryMatch match;
     while (ts_query_cursor_next_match(cursor, &match))
     {
+        // Filter by predicates
+        if (match.pattern_index < (uint32_t)locals_preds.size()
+            and not locals_preds[(int)match.pattern_index].empty()
+            and not predicates_match(locals_preds[(int)match.pattern_index], match, buffer))
+            continue;
+
         for (uint16_t c = 0; c < match.capture_count; ++c)
         {
             auto& cap = match.captures[c];
@@ -2621,6 +2628,8 @@ private:
                         const Vector<String>& capture_faces,
                         uint32_t start_byte, uint32_t end_byte,
                         const HashSet<uint32_t>& local_refs,
+                        const PatternPredicates& highlight_preds,
+                        const Buffer& buffer,
                         HighlightContext& context, DisplayBuffer& display_buffer)
     {
         if (not m_cursor)
@@ -2634,6 +2643,15 @@ private:
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
         {
+            // Filter by predicates
+            if (match.pattern_index < (uint32_t)highlight_preds.size()
+                and not highlight_preds[(int)match.pattern_index].empty()
+                and not predicates_match(highlight_preds[(int)match.pattern_index], match, buffer))
+            {
+                ts_query_cursor_remove_match(m_cursor, match.id);
+                continue;
+            }
+
             const TSQueryCapture& capture = match.captures[capture_index];
 
             if (capture.index >= (uint32_t)capture_faces.size())
@@ -2715,7 +2733,8 @@ private:
         {
             m_local_refs = build_local_references(config->locals_query(),
                                                   ts_tree_root_node(syntax_tree.tree()),
-                                                  buffer, start_byte, end_byte);
+                                                  buffer, start_byte, end_byte,
+                                                  config->locals_predicates());
             m_local_refs_timestamp = syntax_tree.timestamp();
         }
 
@@ -2725,6 +2744,7 @@ private:
                        root_faces,
                        start_byte, end_byte,
                        m_local_refs,
+                       config->highlight_predicates(), buffer,
                        context, display_buffer);
 
         // Detect and highlight injection layers
@@ -2743,13 +2763,15 @@ private:
             if (layer.config->locals_query())
                 inj_local_refs = build_local_references(layer.config->locals_query(),
                                                         ts_tree_root_node(layer.tree),
-                                                        buffer, start_byte, end_byte);
+                                                        buffer, start_byte, end_byte,
+                                                        layer.config->locals_predicates());
 
             run_highlights(inj_query,
                            ts_tree_root_node(layer.tree),
                            inj_faces,
                            start_byte, end_byte,
                            inj_local_refs,
+                           layer.config->highlight_predicates(), buffer,
                            context, display_buffer);
         }
     }
