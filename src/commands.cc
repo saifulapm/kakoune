@@ -3316,6 +3316,114 @@ const CommandDesc tree_select_node_cmd = {
     }
 };
 
+const CommandDesc tree_expand_cmd = {
+    "tree-expand",
+    nullptr,
+    "tree-expand: expand selection to next larger AST node",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            // If current selection already covers this node, walk up
+            // until we find a strictly larger node
+            auto node_sel = node_to_selection(buffer, node);
+            while (not ts_node_is_null(node) and
+                   node_sel.min() >= sel.min() and node_sel.max() <= sel.max())
+            {
+                TSNode parent = ts_node_parent(node);
+                if (ts_node_is_null(parent))
+                    break;
+                node = parent;
+                node_sel = node_to_selection(buffer, node);
+            }
+
+            new_selections.push_back(node_sel);
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
+const CommandDesc tree_shrink_cmd = {
+    "tree-shrink",
+    nullptr,
+    "tree-shrink: shrink selection to first child AST node containing cursor",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+
+        for (auto& sel : selections)
+        {
+            TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+            if (ts_node_is_null(node))
+            {
+                new_selections.push_back(sel);
+                continue;
+            }
+
+            // Walk up to find the node that matches or contains the selection
+            auto node_sel = node_to_selection(buffer, node);
+            while (not ts_node_is_null(node) and
+                   (node_sel.min() > sel.min() or node_sel.max() < sel.max()))
+            {
+                TSNode parent = ts_node_parent(node);
+                if (ts_node_is_null(parent))
+                    break;
+                node = parent;
+                node_sel = node_to_selection(buffer, node);
+            }
+
+            // Now find the first named child containing the cursor
+            BufferCoord cursor = sel.cursor();
+            bool found_child = false;
+            uint32_t child_count = ts_node_named_child_count(node);
+            for (uint32_t i = 0; i < child_count; ++i)
+            {
+                TSNode child = ts_node_named_child(node, i);
+                auto child_sel = node_to_selection(buffer, child);
+                if (child_sel.min() <= cursor and cursor <= child_sel.max())
+                {
+                    new_selections.push_back(child_sel);
+                    found_child = true;
+                    break;
+                }
+            }
+
+            if (not found_child)
+                new_selections.push_back(sel);
+        }
+
+        selections.set(std::move(new_selections), selections.main_index());
+    }
+};
+
 const CommandDesc tree_indent_cmd = {
     "tree-indent",
     nullptr,
@@ -3608,6 +3716,8 @@ void register_commands()
     register_command(tree_next_sibling_cmd);
     register_command(tree_prev_sibling_cmd);
     register_command(tree_select_node_cmd);
+    register_command(tree_expand_cmd);
+    register_command(tree_shrink_cmd);
     register_command(tree_indent_cmd);
     register_command(tree_indent_newline_cmd);
 }
