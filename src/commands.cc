@@ -3592,7 +3592,7 @@ const CommandDesc tree_fold_cmd = {
                                   fold_end.line + 1, fold_end.column + 1);
         range_str += "{comment}";
         range_str += indent;
-        range_str += format("+-- {} lines: {}", folded_lines, preview);
+        range_str += format("+-- {} lines: {}\n", folded_lines, preview);
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
         opt.add_from_strings(ConstArrayView<String>{range_str});
@@ -3734,7 +3734,7 @@ const CommandDesc tree_fold_all_cmd = {
                                    fold_end.line + 1, fold_end.column + 1);
                 rs += "{comment}";
                 rs += indent;
-                rs += format("+-- {} lines: {}", folded_lines, preview);
+                rs += format("+-- {} lines: {}\n", folded_lines, preview);
                 range_strs.push_back(std::move(rs));
             }
         }
