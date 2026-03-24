@@ -1,3 +1,4 @@
+#include "language_registry.hh"
 #include "syntax_tree.hh"
 
 #include "unit_tests.hh"
@@ -73,6 +74,28 @@ UnitTest test_ts_point_zero_coord{[]()
                      (uint32_t)(int)origin.column};
     kak_assert(point.row == 0);
     kak_assert(point.column == 0);
+}};
+
+UnitTest test_capture_to_face_name{[]()
+{
+    kak_assert(capture_to_face_name("keyword") == "ts_keyword");
+    kak_assert(capture_to_face_name("constant.builtin") == "ts_constant_builtin");
+    kak_assert(capture_to_face_name("punctuation.bracket") == "ts_punctuation_bracket");
+}};
+
+UnitTest test_filetype_to_language{[]()
+{
+    kak_assert(LanguageRegistry::filetype_to_language("sh") == "bash");
+    kak_assert(LanguageRegistry::filetype_to_language("bash") == "bash");
+    kak_assert(LanguageRegistry::filetype_to_language("zsh") == "bash");
+    kak_assert(LanguageRegistry::filetype_to_language("cpp") == "cpp");
+    kak_assert(LanguageRegistry::filetype_to_language("objc") == "cpp");
+    kak_assert(LanguageRegistry::filetype_to_language("javascript") == "javascript");
+    kak_assert(LanguageRegistry::filetype_to_language("jsx") == "javascript");
+    kak_assert(LanguageRegistry::filetype_to_language("typescript") == "tsx");
+    kak_assert(LanguageRegistry::filetype_to_language("tsx") == "tsx");
+    kak_assert(LanguageRegistry::filetype_to_language("rust") == "rust");
+    kak_assert(LanguageRegistry::filetype_to_language("python") == "python");
 }};
 
 } // namespace Kakoune

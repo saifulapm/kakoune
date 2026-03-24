@@ -16,6 +16,7 @@
 #include "insert_completer.hh"
 #include "json_ui.hh"
 #include "keymap_manager.hh"
+#include "language_registry.hh"
 #include "terminal_ui.hh"
 #include "option_manager.hh"
 #include "option_types.hh"
@@ -719,6 +720,7 @@ int run_server(StringView session, StringView server_init,
     SharedHighlighters  defined_highlighters;
     ClientManager       client_manager;
     BufferManager       buffer_manager;
+    LanguageRegistry    language_registry{runtime_directory()};
 
     register_options();
     register_registers();
