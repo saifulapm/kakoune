@@ -196,56 +196,72 @@ void SyntaxTree::update(const Buffer& buffer)
 
     auto changes = buffer.changes_since(m_timestamp);
 
-    // Check if all changes are single-line. Single-line changes (the common
-    // case for typing, backspace, single-line paste) allow exact byte offset
-    // computation. Multi-line changes require falling back to full reparse
-    // because we cannot reliably compute byte offsets without a rope.
-    bool all_single_line = true;
-    for (auto& change : changes)
-    {
-        if (change.begin.line != change.end.line)
-        {
-            all_single_line = false;
-            break;
-        }
-    }
+    // Apply edits in REVERSE order (like Helix/tree-house). When applied
+    // in reverse, each edit only affects byte positions to its LEFT, which
+    // haven't been processed yet. This means the pre-change byte index
+    // remains valid for all edits — no adjustment tracking needed.
+    //
+    // For byte offsets: use the OLD m_byte_index which reflects the tree's
+    // current coordinate space. For Insert changes, new_end_byte needs the
+    // byte length of the inserted content — we compute this from the change
+    // coordinates since we know the exact line/column extent.
 
-    if (not all_single_line)
+    for (int i = (int)changes.size() - 1; i >= 0; --i)
     {
-        full_parse(buffer);
-        return;
-    }
+        auto& change = changes[(size_t)i];
 
-    // All single-line: apply with exact byte offsets
-    int32_t byte_adjustment = 0;
-
-    for (auto& change : changes)
-    {
         TSInputEdit edit{};
-        uint32_t raw_start = m_byte_index.byte_offset(change.begin);
-        edit.start_byte = (uint32_t)((int32_t)raw_start + byte_adjustment);
+        edit.start_byte = m_byte_index.byte_offset(change.begin);
         edit.start_point = {(uint32_t)(int)change.begin.line,
                             (uint32_t)(int)change.begin.column};
 
         if (change.type == Buffer::Change::Insert)
         {
-            uint32_t inserted = (uint32_t)((int)change.end.column - (int)change.begin.column);
             edit.old_end_byte = edit.start_byte;
             edit.old_end_point = edit.start_point;
-            edit.new_end_byte = edit.start_byte + inserted;
             edit.new_end_point = {(uint32_t)(int)change.end.line,
                                   (uint32_t)(int)change.end.column};
-            byte_adjustment += (int32_t)inserted;
+
+            // Compute exact byte length of inserted content.
+            // For single-line: column difference gives exact bytes.
+            // For multi-line: sum the actual line lengths from the
+            // final buffer. This works because reverse-order edits
+            // to the RIGHT have already been applied to the tree,
+            // but we only need the OLD byte index for start_byte
+            // (which is to the LEFT and unaffected).
+            if (change.begin.line == change.end.line)
+            {
+                edit.new_end_byte = edit.start_byte +
+                    (uint32_t)((int)change.end.column - (int)change.begin.column);
+            }
+            else
+            {
+                // Multi-line insert: compute byte length by summing lines
+                // from the FINAL buffer (the inserted content is there)
+                uint32_t byte_len = 0;
+                for (auto line = change.begin.line; line <= change.end.line
+                     and line < buffer.line_count(); ++line)
+                {
+                    auto line_content = buffer[line];
+                    if (line == change.begin.line)
+                        byte_len += (uint32_t)((int)line_content.length() - (int)change.begin.column);
+                    else if (line == change.end.line)
+                        byte_len += (uint32_t)(int)change.end.column;
+                    else
+                        byte_len += (uint32_t)(int)line_content.length();
+                }
+                edit.new_end_byte = edit.start_byte + byte_len;
+            }
         }
         else // Erase
         {
-            uint32_t erased = (uint32_t)((int)change.end.column - (int)change.begin.column);
-            edit.old_end_byte = edit.start_byte + erased;
-            edit.old_end_point = {(uint32_t)(int)change.end.line,
-                                  (uint32_t)(int)change.end.column};
             edit.new_end_byte = edit.start_byte;
             edit.new_end_point = edit.start_point;
-            byte_adjustment -= (int32_t)erased;
+            edit.old_end_point = {(uint32_t)(int)change.end.line,
+                                  (uint32_t)(int)change.end.column};
+
+            // For erase: old_end_byte from the OLD byte index (exact)
+            edit.old_end_byte = m_byte_index.byte_offset(change.end);
         }
 
         ts_tree_edit(m_tree, &edit);
