@@ -43,6 +43,14 @@ set-face global ts_variable_builtin       builtin
 set-face global ts_variable_other_member  variable
 set-face global ts_variable_parameter     variable
 
+# Rainbow bracket faces (depth-cycled)
+set-face global ts_rainbow_1 red
+set-face global ts_rainbow_2 green
+set-face global ts_rainbow_3 yellow
+set-face global ts_rainbow_4 blue
+set-face global ts_rainbow_5 magenta
+set-face global ts_rainbow_6 cyan
+
 # Auto-enable tree-sitter highlighting
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
     try %{

@@ -2560,6 +2560,132 @@ private:
     }
 };
 
+const HighlighterDesc rainbow_bracket_desc = {
+    "Use tree-sitter to color matching brackets by nesting depth",
+    {}
+};
+
+struct RainbowBracketHighlighter : Highlighter
+{
+    RainbowBracketHighlighter() : Highlighter{HighlightPass::Colorize} {}
+
+    static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
+    {
+        if (params.size() != 0)
+            throw runtime_error("tree-sitter-rainbow takes no parameters");
+        return make_unique_ptr<RainbowBracketHighlighter>();
+    }
+
+private:
+    static bool is_bracket_char(char c)
+    {
+        return c == '(' or c == ')' or c == '{' or c == '}' or c == '[' or c == ']';
+    }
+
+    static bool is_open_bracket(char c)
+    {
+        return c == '(' or c == '{' or c == '[';
+    }
+
+    void do_highlight(HighlightContext context, DisplayBuffer& display_buffer,
+                      BufferRange range) override
+    {
+        const auto& buffer = context.context.buffer();
+
+        auto filetype = context.context.options()["filetype"].get<String>();
+        if (filetype.empty())
+            return;
+
+        auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+        const auto* config = LanguageRegistry::instance().get(lang_name);
+        if (not config or not config->language())
+            return;
+
+        if (not has_syntax_tree(buffer))
+        {
+            try
+            {
+                create_syntax_tree(buffer, config);
+            }
+            catch (runtime_error&)
+            {
+                return;
+            }
+        }
+
+        auto& syntax_tree = get_syntax_tree(buffer);
+        syntax_tree.update(buffer);
+
+        if (not syntax_tree.is_valid())
+            return;
+
+        auto& faces = context.context.faces();
+
+        TSTreeCursor cursor = ts_tree_cursor_new(ts_tree_root_node(syntax_tree.tree()));
+
+        int depth = 0;
+        bool descended = true;
+
+        do {
+            TSNode node = ts_tree_cursor_current_node(&cursor);
+
+            if (descended)
+            {
+                const char* type = ts_node_type(node);
+                if (type[0] != '\0' and type[1] == '\0' and
+                    is_bracket_char(type[0]) and
+                    ts_node_child_count(node) == 0)
+                {
+                    bool is_open = is_open_bracket(type[0]);
+                    int bracket_depth = is_open ? depth : depth - 1;
+                    if (bracket_depth < 0)
+                        bracket_depth = 0;
+                    int color_index = bracket_depth % 6;
+
+                    String face_name = format("ts_rainbow_{}", color_index + 1);
+
+                    TSPoint start_pt = ts_node_start_point(node);
+                    TSPoint end_pt = ts_node_end_point(node);
+
+                    BufferCoord begin{LineCount{(int)start_pt.row},
+                                      ByteCount{(int)start_pt.column}};
+                    BufferCoord end{LineCount{(int)end_pt.row},
+                                    ByteCount{(int)end_pt.column}};
+
+                    try
+                    {
+                        Face face = faces[face_name];
+                        highlight_range(display_buffer, begin, end, false,
+                                        apply_face(face));
+                    }
+                    catch (runtime_error&) {}
+                }
+            }
+
+            if (descended and ts_tree_cursor_goto_first_child(&cursor))
+            {
+                depth++;
+                descended = true;
+            }
+            else if (ts_tree_cursor_goto_next_sibling(&cursor))
+            {
+                descended = true;
+            }
+            else if (ts_tree_cursor_goto_parent(&cursor))
+            {
+                depth--;
+                descended = false;
+            }
+            else
+            {
+                break;
+            }
+        } while (true);
+
+        ts_tree_cursor_delete(&cursor);
+    }
+};
+
 void register_highlighters()
 {
     HighlighterRegistry& registry = HighlighterRegistry::instance();
@@ -2615,6 +2741,9 @@ void register_highlighters()
     registry.insert({
         "tree-sitter",
         { TreeSitterHighlighter::create, &tree_sitter_desc } });
+    registry.insert({
+        "tree-sitter-rainbow",
+        { RainbowBracketHighlighter::create, &rainbow_bracket_desc } });
     registry.insert({
         "wrap",
         { WrapHighlighter::create, &wrap_desc } });
