@@ -61,12 +61,14 @@ hook -group tree-sitter-auto global WinSetOption filetype= %{
 }
 
 # Catch windows where filetype was set before this script loaded (autoload order)
-hook -group tree-sitter-auto global NormalIdle .* %{
+# Use a one-shot hook: remove itself after first execution
+hook -group tree-sitter-late-init global WinDisplay .* %{
     evaluate-commands %sh{
         if [ -n "$kak_opt_filetype" ]; then
             printf 'try %%{ add-highlighter window/tree-sitter tree-sitter }\n'
         fi
     }
+    remove-hooks global tree-sitter-late-init
 }
 
 # Tree-sitter text object key mappings

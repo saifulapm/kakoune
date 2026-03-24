@@ -2524,10 +2524,15 @@ private:
         uint32_t start_byte = byte_index.byte_offset(display_range.begin);
         uint32_t end_byte = byte_index.byte_offset(display_range.end);
 
+        // Copy query and faces locally — LanguageRegistry pointers can
+        // be invalidated if detect_injections loads new grammars
+        TSQuery* root_query = config->highlight_query();
+        Vector<String> root_faces = config->capture_faces();
+
         // Highlight root layer
-        run_highlights(config->highlight_query(),
+        run_highlights(root_query,
                        ts_tree_root_node(syntax_tree.tree()),
-                       config->capture_faces(),
+                       root_faces,
                        start_byte, end_byte,
                        context, display_buffer);
 
@@ -2539,9 +2544,13 @@ private:
             if (not layer.tree or not layer.config or not layer.config->highlight_query())
                 continue;
 
-            run_highlights(layer.config->highlight_query(),
+            // Copy faces since layer.config may be invalidated
+            TSQuery* inj_query = layer.config->highlight_query();
+            Vector<String> inj_faces = layer.config->capture_faces();
+
+            run_highlights(inj_query,
                            ts_tree_root_node(layer.tree),
-                           layer.config->capture_faces(),
+                           inj_faces,
                            start_byte, end_byte,
                            context, display_buffer);
         }
