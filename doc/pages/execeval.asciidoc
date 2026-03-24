@@ -1,0 +1,72 @@
+= Execute-keys and Evaluate-commands
+
+*execute-keys* [<switches>] <key> ...::
+    Run keys as if they were pressed.
+
+*evaluate-commands* [<switches>] <command> ...::
+    Evaluate specified commands as if they were entered into the command
+    prompt.
+
+By default, the execution of both commands happens within the context of
+the current client, and stops when the last key/command is reached or an
+error occurs.
+
+Without the *-save-regs* switch, *execute-keys* saves the following registers, which
+are then restored when the keys have been executed: */*, *"*, *|*, *^*,
+*@*, *:*. *evaluate-commands* doesn't save any registers by default.
+(See <<registers#,`:doc registers`>>)
+
+== Switches for both commands
+
+*-client* <names>::
+    Execute in the context of each client specified in the comma separated
+    list *names*. '\*' can be used as *names* to iterate overall clients.
+
+*-try-client* <name>::
+    Execute in the context of the client *name* if such client exists,
+    or else in the current context.
+
+*-draft*::
+    Execute in a copy of the context of the selected client. Modifications to
+    the selections or input state will not affect the client. This permits
+    making modifications to the buffer without modifying the user’s
+    selection.
+
+*-itersel*::
+    Execute once per selection, each having its own context. This prevents
+    situations where selections get merged.
+
+*-buffer* <names>::
+    Execute in the context of each buffer specified in the comma separated
+    list *names*. '\*' can be used as *names* to iterate over all non-debug
+    buffers.
+    (See <<buffers#debug-buffers, `:doc buffers`>>)
+
+*-save-regs* <regs>::
+    *regs* is a string of registers to be restored after execution (overwrites
+    the list of registers saved by default).
+
+== Switches specific to *evaluate-commands*
+
+*-no-hooks*::
+    Disable hook execution while executing the keys/commands.
+    (See <<hooks#disabling-hooks,`:doc hooks`>>)
+
+*-verbatim*::
+    Don't reparse and split positional arguments. Forward them exactly
+    as specified.
+
+== Switches specific to *execute-keys*
+
+*-with-maps*::
+    Use a custom key mapping instead of the built-in one.
+    (See <<mapping#,`:doc mapping`>>)
+
+*-with-hooks*::
+    Execute keys and trigger existing hooks.
+    (See <<hooks#,`:doc hooks`>>)
+
+== Local scope in *evaluate-commands*
+
+When using *evaluate-commands* a new scope, named `local` is inserted.
+See <<scopes#,`:doc scopes`>>

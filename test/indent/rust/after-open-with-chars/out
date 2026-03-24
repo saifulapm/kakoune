@@ -1,0 +1,11 @@
+    Foo {
+        bar,
+        baz
+
+    foo(
+        bar,
+        baz
+
+    vec![
+        bar,
+        baz

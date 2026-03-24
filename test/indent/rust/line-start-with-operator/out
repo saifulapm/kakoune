@@ -1,0 +1,49 @@
+    .foo
+        bar
+
+    .foo()
+    bar
+
+    + foo
+    bar
+
+    - foo
+    bar
+
+    * foo
+    bar
+
+    / foo
+    bar
+
+    & foo
+    bar
+
+    | foo
+    bar
+
+    ^ foo
+    bar
+
+    && foo
+    bar
+
+    || foo
+    bar
+
+    < foo
+    bar
+
+    > foo
+    bar
+
+    #[derive(Debug)]
+    bar
+
+    fn foo(
+    ) -> {
+        bar
+
+    } else {
+        bar
+

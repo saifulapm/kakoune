@@ -1,0 +1,2 @@
+hook global ModeChange push:.*:normal 'exec s'
+hook global ModeChange pop:normal:.* 'exec s'

@@ -1,0 +1,1 @@
+:addhl window/ show-whitespaces<ret>i<space><esc>:addhl window/ column 1 red<ret>A<backspace><esc>

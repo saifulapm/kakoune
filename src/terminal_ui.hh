@@ -1,0 +1,185 @@
+#ifndef terminal_hh_INCLUDED
+#define terminal_hh_INCLUDED
+
+#include "array_view.hh"
+#include "coord.hh"
+#include "display_buffer.hh"
+#include "event_manager.hh"
+#include "face.hh"
+#include "optional.hh"
+#include "string.hh"
+#include "user_interface.hh"
+#include "unique_ptr.hh"
+
+#include <termios.h>
+
+namespace Kakoune
+{
+
+struct DisplayAtom;
+struct Writer;
+
+class TerminalUI : public UserInterface, public Singleton<TerminalUI>
+{
+public:
+    TerminalUI();
+    ~TerminalUI() override;
+
+    TerminalUI(const TerminalUI&) = delete;
+    TerminalUI& operator=(const TerminalUI&) = delete;
+
+    bool is_ok() const override { return (bool)m_window; }
+
+    void draw(const DisplayBuffer& display_buffer,
+              DisplayCoord cursor_pos,
+              const Face& default_face,
+              const Face& padding_face,
+              ColumnCount widget_columns) override;
+
+    void draw_status(const DisplayLine& prompt,
+                     const DisplayLine& content,
+                     const ColumnCount cursor_pos,
+                     const DisplayLine& mode_line,
+                     const Face& default_face,
+                     StatusStyle style) override;
+
+    void menu_show(ConstArrayView<DisplayLine> items,
+                   DisplayCoord anchor, Face fg, Face bg,
+                   MenuStyle style) override;
+    void menu_select(int selected) override;
+    void menu_hide() override;
+
+    void info_show(const DisplayLine& title, const DisplayLineList& content,
+                   DisplayCoord anchor, Face face,
+                   InfoStyle style) override;
+    void info_hide() override;
+
+    void refresh(bool force) override;
+
+    DisplayCoord dimensions() override;
+    void set_on_key(OnKeyCallback callback) override;
+    void set_on_paste(OnPasteCallback callback) override;
+    void set_ui_options(const Options& options) override;
+
+    static void setup_terminal();
+    static void restore_terminal();
+
+    void suspend();
+
+    struct Rect
+    {
+        DisplayCoord pos;
+        DisplayCoord size;
+    };
+
+private:
+    void check_resize(bool force = false);
+    void redraw(bool force);
+
+    Optional<Key> get_next_key();
+
+    struct Window : Rect
+    {
+        void create(const DisplayCoord& pos, const DisplayCoord& size);
+        void destroy();
+        void blit(Window& target);
+        void draw(DisplayCoord pos, ConstArrayView<DisplayAtom> atoms, const Face& default_face);
+
+        explicit operator bool() const { return (bool)lines; }
+
+        struct Line;
+        UniquePtr<Line[]> lines;
+    };
+
+    struct Screen : Window
+    {
+        void output(bool force, bool synchronized, Writer& writer);
+        void set_face(const Face& face, Writer& writer);
+
+        UniquePtr<size_t[]> hashes;
+        Face m_active_face;
+    };
+
+    Window m_window;
+    Screen m_screen;
+
+    DisplayCoord m_dimensions;
+    termios m_original_termios{};
+
+    void set_raw_mode() const;
+
+    struct Menu : Window
+    {
+        Vector<DisplayLine, MemoryDomain::Display> items;
+        Face fg;
+        Face bg;
+        DisplayCoord anchor;
+        MenuStyle style;
+        int selected_item = 0;
+        int first_item = 0;
+        int columns = 1;
+    } m_menu;
+
+    void draw_menu();
+
+    LineCount content_line_offset() const;
+
+    struct Info : Window
+    {
+        DisplayLine title;
+        DisplayLineList content;
+        Face face;
+        DisplayCoord anchor;
+        InfoStyle style;
+    } m_info;
+
+    DisplayCoord m_cursor_pos;
+
+    FDWatcher m_stdin_watcher;
+    OnKeyCallback m_on_key;
+    OnPasteCallback m_on_paste;
+    Optional<String> m_paste_buffer;
+
+    bool m_status_on_top = false;
+    ConstArrayView<StringView> m_assistant;
+
+    void enable_mouse(bool enabled);
+
+    bool m_mouse_enabled = false;
+    int m_wheel_scroll_amount = 3;
+    int m_mouse_state = 0;
+
+    static constexpr int default_shift_function_key = 12;
+    int m_shift_function_key = default_shift_function_key;
+
+    bool m_set_title = true;
+    Optional<String> m_title;
+
+    struct Synchronized
+    {
+        bool queried : 1;
+        bool supported : 1;
+        bool set : 1;
+        bool requested : 1;
+
+        explicit operator bool() const { return set ? requested : supported; }
+    } m_synchronized{};
+
+    Codepoint m_padding_char = '~';
+    bool m_padding_fill = false;
+    bool m_cursor_native = false;
+
+    bool m_dirty = false;
+
+    bool m_resize_pending = false;
+    void set_resize_pending();
+
+    ColumnCount m_status_len = 0;
+    ColumnCount m_status_pos = 0;
+    ColumnCount m_status_cursor_pos = 0;
+    ColumnCount m_info_max_width = 0;
+};
+
+}
+
+#endif // terminal_hh_INCLUDED

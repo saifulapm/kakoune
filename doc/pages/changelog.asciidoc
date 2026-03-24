@@ -1,0 +1,360 @@
+= Changelog
+
+To control the startup info message, see <<options#startup-info,`:doc options startup-info`>>
+
+This changelog contains major and/or breaking changes to Kakoune between
+released versions.
+
+== Development Version
+
+* `finaleol` option to support writing files that do not end with an final
+  end-of-line byte
+
+* `FocusIn`/`FocusOut` events on suspend
+
+* `%val{buffile}` is now empty for scratch buffers
+
+* Reworked Json UI draw_status call to give UI implementation more control,
+  added cursor pos to the draw call and removed the set_cursor call
+
+* `number-lines -full-relative` switch to keep a smaller line number gutter.
+
+* `<a-I>` and `<a-A>` to select nested text objects
+
+* `kak -C <session>` connects to a session or creates it if it does not exist.
+
+== Kakoune 2025.06.03
+
+* Expose env vars that are mentioned in the arguments passed to shell expansions
+
+* Support for colored double underlines
+
+* `git apply` can now operate on selected changes in the current buffer's
+  file (useful for quick (un)staging and reverting)
+
+* `exec/eval -client` switch accepts '*' for all clients and comma separated
+  list of client names.
+
+== Kakoune 2024.05.18
+
+* Fixed tests on Alpine Linux and *BSD
+
+== Kakoune 2024.05.09
+
+* `flag-lines -after` switch to display text after the line
+
+* `shell-script-candidates` completion now runs the script asynchronously
+  while displaying and updating results live.
+
+* `%val{window_range}` elements are now emitted as different strings
+
+* `+` only duplicates identical selections a single time to avoid surprising
+  and slow exponential growth in the number of selections.
+
+* `daemonize-session` command makes it possible to convert the current session
+  to a daemon one (which will not exit on last client disconnecting)
+
+* View mode commands and mouse scrolling no longer change selections when those go off-screen.
+
+* New commands `git apply`, `git blame-jump`, `git edit` and `git grep`.
+
+* `git blame` now also works in `git-diff` and `git-log` buffers.
+
+* Completions provided via `shell-script-candidates` or `completers` are no longer sorted if the typed text is empty.
+
+* The `terminal` alias has been replaced with a command that selects terminal program and placement based on windowing options.
+
+* `local` scopes in `commands` and `evaluate-commands`.
+
+== Kakoune 2023.08.08
+
+* Fix compilation errors on FreeBSD and MacOS using clang
+
+== Kakoune 2023.07.29
+
+* `<a-u>` and `<a-U>` now undo/redo selection changes; the previous meaning
+  of moving in history tree has been moved to `<c-j>` and `<c-k>`
+
+* `%exp{...}` expansions provide flexible quoting for expanded strings
+  (as double quoted strings)
+
+* `<c-g>` cancels the current operation and goes back to the main event
+  loop, this provides an escape hatch when Kakoune seems to hang due to
+  a costly operation
+
+* `show-matching -previous` highlighter will fall back onto the character
+  preceeding the cursor
+
+== Kakoune 2022.10.31
+
+* `complete-command` (See <<commands#configuring-command-completion,`:doc commands configuring-command-completion`>>)
+
+* `p`, `P`, `!` and `<a-!>` commands now select the inserted text
+
+* `x` now just extends the selection to contain full lines (as `<a-x>` did)
+  `<a-x>` trims partial lines from the selection (as `<a-X>` did)
+
+* User mappings is now bound to `<space>` while keeping/removing main selection
+  moved to `,` and `<a-,>`
+
+* Prompt history registers `%reg{colon}`, `%reg{slash}` and `%reg{pipe}` now
+  have reverse chronological order
+
+* Executing user mode mappings no longer adds to prompt history registers.
+
+== Kakoune 2021.11.07
+
+* Support for curly and separately colored underlines (undocumented in 2021.10.28)
+
+* Fixes for terminal flickering
+
+* Fixes for command and response fifo corner cases
+
+== Kakoune 2021.10.28
+
+* `g` and `v` do not auto lower case the next key, so `GL` needs to be
+  manually mapped to `Gl` for example.
+
+== Kakoune 2021.08.28
+
+* command and response fifo support
+  (See <<expansions#command-and-response-fifo,`:doc expansions command-and-response-fifo`>>)
+
+* Shell expansions only trim the last trailing newline instead of all of
+  them to make is possible to losslessly pass text through `%sh{...}`. 
+
+* `set-option -remove` support for subtracting/removing from option values
+
+* Menu completions such as command name completion are now auto-inserted on
+  space
+
+* `write -atomic` was replaced with `write -method [replace|overwrite]` to
+  make both write methods available explicitly
+
+* `write <filename>` will fail if the given filename already exists and is
+  a regular file. Use the `-force` switch to override that behaviour.
+
+== Kakoune 2020.09.01
+
+* The `repl` and `send-text` aliases have been renamed respectively into
+  `repl-new` and `repl-send-text`.
+
+* Daemon mode (`-d` switch) does not fork anymore.
+
+* Replace NCursesUI with a custom terminal UI implementation
+
+== Kakoune 2020.08.04
+
+* Introduce `User` hook support.
+
+* The `bold` and `italic` faces are no longer built-in. Highlighters
+  are expected to use face attributes (`+b` and `+i`, respectively) to
+  decorate text.
+
+* The `lint-enable` command no longer needs to be called to display
+  linting errors. The `lint-disable` command was renamed into
+  `lint-hide-diagnostics`.
+
+* The `+<length>` part of a `range-specs` highlighter consistently
+  refers to the length of the target range.
+
+* clients stdin is transferred to the server, making it possible
+  to pipe into `kak -c <session>`
+
+* Faces can have an alpha channel, specified using the 
+  `rgba:RRGGBBAA` format.
+
+* replace-ranges highlighter now support empty and multi-lines ranges
+
+* `%val{...}` now expands to list of strings, `$kak_quoted_...` now work
+  as expected with these.
+
+* `*SetOption` hooks filter string will contain a value only for options
+  of int/str/bool types to avoid performance issue with generating those
+  on more complex option types. 
+
+== Kakoune 2020.01.16
+
+* Expose history tree through `$kak_history` and
+  `$kak_uncommitted_modifications`
+
+* `InsertCompletionHide` parameter is the list of inserted
+  ranges
+
+== Kakoune 2019.12.10
+
+* Arrow keys and `<home>`, `<end>` are not normal mode commands
+  anymore but default key mappings.
+  
+* `ModeChange` hook parameter now takes `push:` or `pop:` prefix,
+  `InsertBegin`, `InsertEnd`, `NormalBegin` and `NormalEnd`
+  were removed.
+
+* `-verbatim` switch in `evaluate-commands` for perfect command
+  forwarding to another context.
+
+* `WrapMarker` face used by `wrap -marker` highlighter
+
+* `info` supports markup with the `-markup` switch
+
+* `rename-buffer` gained `-file` and `-scratch` switches
+  to support converting buffer types.  
+
+== Kakoune 2019.07.01
+
+* Re-organized bundled script files directory hierarchy.
+
+* Introduced helpers to write/read from file in scripts with
+  `%file{...}` expansion and `echo -to-file <filename>`.
+
+* Added `ClientCreate` and `ClientClose` hooks
+
+* `edit -scratch` with no buffer name will create a new
+  scratch buffer with a unique autogenerated name.
+
+* `info -placement` is now `info -style` and supports
+  `menu` and `modal` additional styles.
+
+* `completions` option type `docstring` are now arbitrary
+  kakoune commands that are run on item select.
+
+* `InsertCompletionSelect` hook has been removed as
+  `completions` commands now provides a similar feature.
+
+* Introduced a module system using the `provide-module` and
+  `require-module` commands that allows for lazily loading language
+  support files with dependency resolution.
+
+* Added a new hook `ModuleLoaded` which is run after a module is
+  loaded, allowing for module specific configuration.
+
+* Shell quoting of lists is not automatic anymore, `$kak_quoted_...`
+  makes it opt-in, and works for all option types.
+
+* Lower case function key syntax is not accepted anymore,
+  `<f1>` should be converted to `<F1>`.
+
+== Kakoune 2019.01.20
+
+* `auto_complete` has been renamed to `autocomplete` for more
+  consistency.
+
+* Start of a builtin key parser in the ncurses ui bypassing
+  the ncurses one. Can be favored by setting the ui option
+  `ncurses_builtin_key_parser` to `true`.
+
+* Right clicks extend the current selection, the control modifier allows
+  merging all the selections after extension.
+
+* The `regex` highlighter now supports named capture groups to
+  ease readability.
+
+== Kakoune 2018.10.27
+
+* `remove-hooks` <group> argument is now a regex and removes all
+  hooks whose group matches it.
+
+* `exclusive` face attribute (e) has been replaced with more
+  granular `final foreground` (f), `final background` (g), and `final
+  attributes` (a), or the three combined as `final` (F).  Semantics
+  changed slightly as those attributes apply to the existing face as
+  well (a final face will not get modified by a following face if that
+  following face does not have the final attribute itself.
+
+* `<a-m>` aka "merge consecutive selections" has been moved to `<a-_>`.
+  The new `<a-m>` and `<a-M>` are now symmetrical with `m` and `M`.
+  Those commands select (or extend) to the matching char backwards.
+
+* `define-command` switches `-shell-completion` and `-shell-candidates`
+  have been renamed to `-shell-script-completion` and
+  `-shell-script-candidates` to make way for a new `-shell-completion`
+  which completes like the shell (shell command name then filename).
+
+* `asciidoc` is not a dependency anymore, the last file that required
+  it (Kakoune's manpage) has been converted to troff format.
+
+== Kakoune 2018.09.04
+
+This version contains a significant overhaul of various Kakoune
+features that can break user configuration. This was a necessary
+change to make Kakoune command model cleaner and more robust.
+
+* `%sh{...}` strings are not reparsed automatically anymore, they need
+  to go through an explicit `evaluate-commands`
+
+* The `-allow-override` switch from `define-command` has been renamed
+  `-override`.
+
+* The search prompt uses buffer word completion so that fuzzy completion
+  can be used to quickly search for a buffer word.
+
+* The `wrap` highlighter can accept a new `-marker <marker_text>` switch.
+
+* The command line syntax has changed to support robust escaping.
+
+  - `%sh{...}` is not expanded to multiple tokens automatically anymore,
+    to evaluate its output as multiple tokens/commands, use the
+    `evaluate-commands` command:
+
+   -------------------------------------------------------------
+   evaluate-commands %sh{ echo "first command; second command" }
+   -------------------------------------------------------------
+
+  - Escaping of `'` in `'...'` and `"` and `%` in `"..."` strings is done
+    by doubling up (`''`, `""` and `%%`) instead of using a backslash
+
+  - Bare words escaping has been tweaked.
+
+  See <<command-parsing#,`:doc command-parsing`>>.
+
+* Various lists (options, registers...) in Kakoune are now written using
+  the command line syntax:
+
+  - `set-register` now take an arbitrary number of parameters and sets
+    the register to multiple strings. `%reg` expands to a list of strings.
+
+  - the `$kak_reg_*` environment variable is now a list, `$kak_main_reg_*`
+    provides the previous behaviour.
+
+  - `%opt` expands list options as list of strings.
+
+  - selection descs are whitespaces separated instead of `:` separated
+
+* Highlighters syntax has changed to permit explicit naming and remove
+  highlighter specific name parameters (such as for the group highlighter)
+  `add-highlighter <path>/<name> <type> <params>` is the new syntax.
+
+* Regions highlighters have been overhauled and are now specified with
+  a sequence of commands instead of a single one:
+
+  ------------------------------------------------------------------
+  add-highlighter <path>/<name> regions
+  add-highlighter <path>/<name>/<region name> region <begin> <end> \
+  <type> <params>
+  ------------------------------------------------------------------
+
+  The recursion regex is opt-in through a `-recurse <recurse>` flag.
+
+  They also are not necessarily groups anymore, a region can directly
+  apply any other highlighter
+
+  See <<highlighters#,`:doc highlighters`>>
+
+* Highlighter type names have been unified, types that used `_` as
+  word separators, such as `show_whitespaces` are now using `-`
+  (`show-whitespace`).
+
+* `a` on end of line is not treated specially anymore, it will start
+  inserting on the next character, which will be the first character
+  of the next line.
+
+* `autoshowcompl` options has been renamed `auto_complete` and is
+  now a `flags(insert|prompt)` option, allowing more granular
+  configuration of when the completions should be displayed
+  automatically.
+
+* Prompt editing shortcuts have been changed to match readline.
+
+== Kakoune 2018.04.13
+
+First official Kakoune release.

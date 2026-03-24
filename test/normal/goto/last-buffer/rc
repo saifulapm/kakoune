@@ -1,0 +1,4 @@
+nop %sh{ printf 'last-buffer\n' > last-buffer }
+
+edit last-buffer
+buffer out

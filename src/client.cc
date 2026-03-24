@@ -1,0 +1,558 @@
+#include "client.hh"
+
+#include "clock.hh"
+#include "context.hh"
+#include "buffer_utils.hh"
+#include "debug.hh"
+#include "file.hh"
+#include "remote.hh"
+#include "option.hh"
+#include "option_types.hh"
+#include "client_manager.hh"
+#include "event_manager.hh"
+#include "hook_manager.hh"
+#include "keymap_manager.hh"
+#include "option_manager.hh"
+#include "shell_manager.hh"
+#include "face_registry.hh"
+#include "command_manager.hh"
+#include "user_interface.hh"
+#include "window.hh"
+#include "hash_map.hh"
+
+#include <csignal>
+#include <unistd.h>
+
+#include <utility>
+
+namespace Kakoune
+{
+
+Client::Client(UniquePtr<UserInterface>&& ui,
+               UniquePtr<Window>&& window,
+               SelectionList selections, int pid,
+               EnvVarMap env_vars,
+               String name,
+               OnExitCallback on_exit)
+    : m_ui{std::move(ui)}, m_window{std::move(window)},
+      m_pid{pid},
+      m_on_exit{std::move(on_exit)},
+      m_env_vars(std::move(env_vars)),
+      m_input_handler{std::move(selections), Context::Flags::None,
+                      std::move(name)}
+{
+    m_window->set_client(this);
+
+    context().set_client(*this);
+    context().set_window(*m_window);
+
+    m_window->set_dimensions(m_ui->dimensions());
+    m_window->options().register_watcher(*this);
+
+    m_ui->set_ui_options(m_window->options()["ui_options"].get<UserInterface::Options>());
+    m_ui->set_on_key([this](Key key) {
+        kak_assert(key != Key::Invalid);
+        if (key == ctrl('c'))
+        {
+            auto prev_handler = set_signal_handler(SIGINT, SIG_IGN);
+            killpg(getpgrp(), SIGINT);
+            set_signal_handler(SIGINT, prev_handler);
+        }
+        else if (key == ctrl('g'))
+        {
+            m_pending_keys.clear();
+            print_status({}, {"operation cancelled", context().faces()["Error"]}, -1, StatusStyle::Status);
+            throw cancel{};
+        }
+        else if (key.modifiers & Key::Modifiers::Resize)
+        {
+            m_window->set_dimensions(key.coord());
+            force_redraw(true);
+        }
+        else
+            m_pending_keys.push_back(key);
+    });
+    m_ui->set_on_paste([this](StringView content) {
+        context().input_handler().paste(content);
+    });
+
+    m_window->hooks().run_hook(Hook::WinDisplay, m_window->buffer().name(), context());
+
+    force_redraw();
+}
+
+Client::~Client()
+{
+    m_window->options().unregister_watcher(*this);
+    m_window->set_client(nullptr);
+    // Do not move the selections here, as we need them to be valid
+    // in order to correctly destroy the input handler
+    ClientManager::instance().add_free_window(std::move(m_window),
+                                              context().selections());
+}
+
+bool Client::is_ui_ok() const
+{
+    return m_ui->is_ok();
+}
+
+bool Client::process_pending_inputs()
+{
+    const bool debug_keys = (bool)(context().options()["debug"].get<DebugFlags>() & DebugFlags::Keys);
+    m_window->run_resize_hook_ifn();
+    // steal keys as we might receive new keys while handling them.
+    Vector<Key, MemoryDomain::Client> keys = std::move(m_pending_keys);
+    for (auto& key : keys)
+    {
+        try
+        {
+            if (debug_keys)
+                write_to_debug_buffer(format("Client '{}' got key '{}'", context().name(), key));
+
+            if (key == Key::FocusIn)
+                context().hooks().run_hook(Hook::FocusIn, context().name(), context());
+            else if (key == Key::FocusOut)
+                context().hooks().run_hook(Hook::FocusOut, context().name(), context());
+            else
+            {
+                context().ensure_cursor_visible = true;
+                m_input_handler.handle_key(key, /*synthesized=*/false);
+            }
+
+            context().hooks().run_hook(Hook::RawKey, to_string(key), context());
+        }
+        catch (Kakoune::runtime_error& error)
+        {
+            write_to_debug_buffer(format("Error: {}", error.what()));
+            context().print_status({}, {error.what().str(), context().faces()["Error"]}, -1, StatusStyle::Status);
+            context().hooks().run_hook(Hook::RuntimeError, error.what(), context());
+        }
+    }
+    return not keys.empty();
+}
+
+void Client::print_status(DisplayLine prompt, DisplayLine content, ColumnCount cursor_pos, StatusStyle style)
+{
+    m_status_prompt = std::move(prompt);
+    m_status_content = std::move(content);
+    m_status_cursor_pos = cursor_pos;
+    m_status_style = style;
+    m_ui_pending |= StatusLine;
+    m_pending_clear &= ~PendingClear::StatusLine;
+}
+
+
+DisplayCoord Client::dimensions() const
+{
+    return m_ui->dimensions();
+}
+
+String generate_context_info(const Context& context)
+{
+    String s = "";
+    if (context.buffer().is_modified())
+        s += "[+]";
+    if (context.client().input_handler().is_recording())
+        s += format("[recording ({})]", context.client().input_handler().recording_reg());
+    if (context.hooks_disabled())
+        s += "[no-hooks]";
+    if (not(context.buffer().flags() & (Buffer::Flags::File | Buffer::Flags::Debug)))
+        s += "[scratch]";
+    if (context.buffer().flags() & Buffer::Flags::New)
+        s += "[new file]";
+    if (context.buffer().flags() & Buffer::Flags::Fifo)
+        s += "[fifo]";
+    if (context.buffer().flags() & Buffer::Flags::Debug)
+        s += "[debug]";
+    if (context.buffer().flags() & Buffer::Flags::ReadOnly)
+        s += "[readonly]";
+    return s;
+}
+
+DisplayLine Client::generate_mode_line() const
+{
+    DisplayLine modeline;
+    try
+    {
+        auto [mode_info_line, normal_params] = context().client().input_handler().mode_info();
+        const String& modelinefmt = context().options()["modelinefmt"].get<String>();
+        HashMap<String, DisplayLine> atoms{{ "mode_info",  mode_info_line},
+                                           { "context_info", {generate_context_info(context()),
+                                                              context().faces()["Information"]}}};
+        ShellContext shell_context{{}, {
+            {"register", normal_params ? StringView{normal_params->reg}.str() : ""},
+            {"count", normal_params ? String{to_string(normal_params->count)} : ""},
+        }};
+        auto expanded = expand(modelinefmt, context(), shell_context,
+                               [](String s) { return escape(s, '{', '\\'); });
+        modeline = parse_display_line(expanded, context().faces(), atoms);
+    }
+    catch (runtime_error& err)
+    {
+        write_to_debug_buffer(format("Error while parsing modelinefmt: {}", err.what()));
+        modeline.push_back({ "modelinefmt error, see *debug* buffer", context().faces()["Error"] });
+    }
+
+    return modeline;
+}
+
+void Client::change_buffer(Buffer& buffer, Optional<FunctionRef<void()>> set_selections)
+{
+    if (m_buffer_reload_dialog_opened)
+        close_buffer_reload_dialog();
+
+    if (context().buffer().flags() & Buffer::Flags::Locked)
+        throw runtime_error("Changing buffer is not allowed while current buffer is locked");
+
+    buffer.flags() |= Buffer::Flags::Locked;
+    OnScopeEnd unlock{[&] { buffer.flags() &= ~Buffer::Flags::Locked; }};
+
+    auto& client_manager = ClientManager::instance();
+    WindowAndSelections ws = client_manager.get_free_window(buffer);
+
+    m_window->options().unregister_watcher(*this);
+    m_window->set_client(nullptr);
+    client_manager.add_free_window(std::move(m_window),
+                                   context().selections());
+
+    m_window = std::move(ws.window);
+    m_window->set_client(this);
+    m_window->options().register_watcher(*this);
+
+    if (set_selections)
+        (*set_selections)();
+    else
+    {
+        ScopedSelectionEdition selection_edition{context()};
+        context().selections_write_only() = std::move(ws.selections);
+    }
+
+    context().set_window(*m_window);
+
+    m_window->set_dimensions(m_ui->dimensions());
+    m_ui->set_ui_options(m_window->options()["ui_options"].get<UserInterface::Options>());
+
+    m_window->hooks().run_hook(Hook::WinDisplay, buffer.name(), context());
+    force_redraw(true);
+}
+
+static bool is_inline(InfoStyle style)
+{
+    return style == InfoStyle::Inline or
+           style == InfoStyle::InlineAbove or
+           style == InfoStyle::InlineBelow;
+}
+
+void Client::redraw_ifn()
+{
+    Window& window = context().window();
+    if (window.needs_redraw(context()))
+        m_ui_pending |= Draw;
+
+    const auto& faces = context().faces();
+
+    if (m_ui_pending & Draw)
+    {
+        auto& display_buffer = window.update_display_buffer(context());
+        auto cursor_pos = window.display_coord(context().selections().main().cursor()).value_or(DisplayCoord{});
+        m_ui->draw(display_buffer, cursor_pos, faces["Default"], faces["BufferPadding"],
+                   window.last_display_setup().widget_columns);
+    }
+
+    const bool update_menu_anchor = (m_ui_pending & Draw) and not (m_ui_pending & MenuHide) and
+                                    not m_menu.items.empty() and m_menu.style == MenuStyle::Inline;
+    if ((m_ui_pending & MenuShow) or update_menu_anchor)
+    {
+        auto anchor = m_menu.style == MenuStyle::Inline ?
+            window.display_coord(m_menu.anchor) : DisplayCoord{};
+        if (not (m_ui_pending & MenuShow) and m_menu.ui_anchor != anchor)
+            m_ui_pending |= anchor ? (MenuShow | MenuSelect) : MenuHide;
+        m_menu.ui_anchor = anchor;
+    }
+
+    if (m_ui_pending & MenuShow and m_menu.ui_anchor)
+        m_ui->menu_show(m_menu.items, *m_menu.ui_anchor,
+                        faces["MenuForeground"], faces["MenuBackground"],
+                        m_menu.style);
+    if (m_ui_pending & MenuSelect and m_menu.ui_anchor)
+        m_ui->menu_select(m_menu.selected);
+    if (m_ui_pending & MenuHide)
+        m_ui->menu_hide();
+
+    const bool update_info_anchor = (m_ui_pending & Draw) and not (m_ui_pending & InfoHide) and
+                                    not m_info.content.empty() and is_inline(m_info.style);
+    if ((m_ui_pending & InfoShow) or update_info_anchor)
+    {
+        auto anchor = is_inline(m_info.style) ?
+             window.display_coord(m_info.anchor) : DisplayCoord{};
+        if (not (m_ui_pending & MenuShow) and m_info.ui_anchor != anchor)
+            m_ui_pending |= anchor ? InfoShow : InfoHide;
+        m_info.ui_anchor = anchor;
+    }
+
+    if (m_ui_pending & InfoShow and m_info.ui_anchor)
+        m_ui->info_show(m_info.title, m_info.content, *m_info.ui_anchor,
+                        faces[(is_inline(m_info.style) || m_info.style == InfoStyle::MenuDoc)
+                        ? "InlineInformation" : "Information"], m_info.style);
+    if (m_ui_pending & InfoHide)
+        m_ui->info_hide();
+
+    // This needs to be done *after* update_display_buffer as ithe mode line may rely on it to
+    // compute whether selections are visible.
+    DisplayLine mode_line = generate_mode_line();
+    if (mode_line.atoms() != m_mode_line.atoms())
+    {
+        m_ui_pending |= StatusLine;
+        m_mode_line = std::move(mode_line);
+    }
+    if (m_ui_pending & StatusLine)
+        m_ui->draw_status(m_status_prompt, m_status_content, m_status_cursor_pos, m_mode_line, faces["StatusLine"], m_status_style);
+
+    if (m_ui_pending != 0)
+        m_ui->refresh(m_ui_pending & Refresh);
+
+    m_ui_pending = 0;
+}
+
+void Client::force_redraw(bool full)
+{
+    if (full)
+        m_ui_pending |= Refresh | Draw | StatusLine |
+            (m_menu.items.empty() ? MenuHide : MenuShow | MenuSelect) |
+            (m_info.content.empty() ? InfoHide : InfoShow);
+    else
+        m_ui_pending |= Draw;
+}
+
+void Client::reload_buffer()
+{
+    Buffer& buffer = context().buffer();
+    try
+    {
+        reload_file_buffer(buffer);
+        context().print_status({ format("'{}' reloaded", buffer.display_name()),
+                                 context().faces()["Information"] });
+
+        m_window->hooks().run_hook(Hook::BufReload, buffer.name(), context());
+    }
+    catch (runtime_error& error)
+    {
+        context().print_status({ format("error while reloading buffer: '{}'", error.what()),
+                                 context().faces()["Error"] });
+        buffer.set_fs_status(get_fs_status(buffer.filename()));
+    }
+}
+
+void Client::on_buffer_reload_key(Key key)
+{
+    auto& buffer = context().buffer();
+
+    auto set_autoreload = [this](Autoreload autoreload) {
+        auto* option = &context().options()["autoreload"];
+        // Do not touch global autoreload, set it at least at buffer level
+        if (&option->manager() == &GlobalScope::instance().options())
+            option = &context().buffer().options().get_local_option("autoreload");
+        option->set(autoreload);
+    };
+
+    if (key == 'y' or key == 'Y' or key == Key::Return)
+    {
+        reload_buffer();
+        if (key == 'Y')
+            set_autoreload(Autoreload::Yes);
+    }
+    else if (key == 'n' or key == 'N' or key == Key::Escape)
+    {
+        // reread timestamp in case the file was modified again
+        buffer.set_fs_status(get_fs_status(buffer.filename()));
+        print_status({}, { format("'{}' kept", buffer.display_name()),
+                           context().faces()["Information"] }, -1, StatusStyle::Status);
+        if (key == 'N')
+            set_autoreload(Autoreload::No);
+    }
+    else
+    {
+        print_status({}, { format("'{}' is not a valid choice", key),
+                           context().faces()["Error"] }, -1, StatusStyle::Status);
+        m_input_handler.on_next_key("buffer-reload", KeymapMode::None, [this](Key key, Context&){ on_buffer_reload_key(key); });
+        return;
+    }
+
+    for (auto& client : ClientManager::instance())
+    {
+        if (&client->context().buffer() == &buffer and
+            client->m_buffer_reload_dialog_opened)
+            client->close_buffer_reload_dialog();
+    }
+}
+
+void Client::close_buffer_reload_dialog()
+{
+    kak_assert(m_buffer_reload_dialog_opened);
+    // Reset first as this might check for reloading.
+    m_input_handler.reset_normal_mode();
+    m_buffer_reload_dialog_opened = false;
+    info_hide(true);
+}
+
+void Client::check_if_buffer_needs_reloading()
+{
+    if (m_buffer_reload_dialog_opened)
+        return;
+
+    Buffer& buffer = context().buffer();
+    auto reload = context().options()["autoreload"].get<Autoreload>();
+    if (not (buffer.flags() & Buffer::Flags::File) or reload == Autoreload::No)
+        return;
+
+    try
+    {
+        const String& filename = buffer.filename();
+        const timespec ts = get_fs_timestamp(filename);
+        const auto status = buffer.fs_status();
+
+        if (ts == InvalidTime or ts == status.timestamp)
+            return;
+
+        if (MappedFile fd{filename};
+            fd.st.st_size == status.file_size and murmur3(fd.data, fd.st.st_size) == status.hash)
+            return;
+
+        if (reload == Autoreload::Ask)
+        {
+            info_show(format("reload '{}' ?", buffer.display_name()),
+                      format("'{}' was modified externally\n"
+                             " y, <ret>: reload | n, <esc>: keep\n"
+                             " Y: always reload | N: always keep\n",
+                             buffer.display_name()), {}, InfoStyle::Modal);
+
+            m_buffer_reload_dialog_opened = true;
+            m_input_handler.on_next_key("buffer-reload", KeymapMode::None, [this](Key key, Context&){ on_buffer_reload_key(key); });
+        }
+        else
+            reload_buffer();
+    }
+    catch (Kakoune::runtime_error& error)
+    {
+        write_to_debug_buffer(format("Error while checking if buffer {} changed: {}", buffer.filename(), error.what()));
+    }
+}
+
+StringView Client::get_env_var(StringView name) const
+{
+    auto it = m_env_vars.find(name);
+    if (it == m_env_vars.end())
+        return {};
+    return it->value;
+}
+
+void Client::on_option_changed(const Option& option)
+{
+    if (option.name() == "ui_options")
+        m_ui->set_ui_options(option.get<UserInterface::Options>());
+    m_ui_pending |= Draw; // a highlighter might depend on the option, so we need to redraw
+}
+
+void Client::menu_show(Vector<DisplayLine> choices, BufferCoord anchor, MenuStyle style)
+{
+    m_menu = Menu{ std::move(choices), anchor, {}, style, -1 };
+    m_ui_pending |= MenuShow;
+    m_ui_pending &= ~MenuHide;
+}
+
+void Client::menu_select(int selected)
+{
+    m_menu.selected = selected;
+    m_ui_pending |= MenuSelect;
+    m_ui_pending &= ~MenuHide;
+}
+
+void Client::menu_hide()
+{
+    m_menu = Menu{};
+    m_ui_pending |= MenuHide;
+    m_ui_pending &= ~(MenuShow | MenuSelect);
+}
+
+void Client::info_show(DisplayLine title, DisplayLineList content, BufferCoord anchor, InfoStyle style)
+{
+    if (m_info.style == InfoStyle::Modal) // We already have a modal info opened, do not touch it.
+        return;
+
+    m_info = Info{ std::move(title), std::move(content), anchor, {}, style };
+    m_ui_pending |= InfoShow;
+    m_ui_pending &= ~InfoHide;
+    m_pending_clear &= ~PendingClear::Info;
+}
+
+void Client::info_show(StringView title, StringView content, BufferCoord anchor, InfoStyle style)
+{
+    if (not content.empty() and content.back() == '\n')
+        content = content.substr(0, content.length() - 1);
+    info_show(title.empty() ? DisplayLine{} : DisplayLine{title.str(), Face{}},
+              content | split<StringView>('\n')
+                      | transform([](StringView s) { return DisplayLine{replace(s, '\t', ' '), Face{}}; })
+                      | gather<DisplayLineList>(),
+              anchor, style);
+}
+
+void Client::info_hide(bool even_modal)
+{
+    if (not even_modal and m_info.style == InfoStyle::Modal)
+        return;
+
+    m_info = Info{};
+    m_ui_pending |= InfoHide;
+    m_ui_pending &= ~InfoShow;
+}
+
+void Client::schedule_clear()
+{
+    if (not (m_ui_pending & InfoShow))
+        m_pending_clear |= PendingClear::Info;
+    if (not (m_ui_pending & StatusLine))
+        m_pending_clear |= PendingClear::StatusLine;
+}
+
+void Client::clear_pending()
+{
+    if (m_pending_clear & PendingClear::StatusLine)
+        print_status({}, {}, -1, StatusStyle::Status);
+    if (m_pending_clear & PendingClear::Info)
+        info_hide();
+    m_pending_clear = PendingClear::None;
+}
+
+constexpr std::chrono::seconds wait_timeout{1};
+
+BusyIndicator::BusyIndicator(const Context& context,
+                             Function<DisplayLine(std::chrono::seconds)> status_message,
+                             TimePoint wait_time)
+    : m_context(context),
+      m_timer{wait_time + wait_timeout,
+        [this, status_message = std::move(status_message), wait_time](Timer& timer) {
+            if (not m_context.has_client())
+                return;
+            using namespace std::chrono;
+            const auto now = Clock::now();
+            timer.set_next_date(now + wait_timeout);
+
+            auto& client = m_context.client();
+            if (not m_previous_status)
+                m_previous_status.emplace(client.m_status_prompt, client.m_status_content, client.m_status_cursor_pos, client.m_status_style);
+
+            client.print_status({}, status_message(duration_cast<seconds>(now - wait_time)), -1, StatusStyle::Status);
+            client.redraw_ifn();
+        }, EventMode::Urgent} {}
+
+BusyIndicator::~BusyIndicator()
+{
+    if (m_previous_status and std::uncaught_exceptions() == 0) // restore the status line
+    {
+        auto& [prompt, content, cursor_pos, style] = *m_previous_status;
+        m_context.print_status(std::move(prompt), std::move(content), std::move(cursor_pos), style);
+        m_context.client().redraw_ifn();
+    }
+}
+
+}

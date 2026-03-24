@@ -1,0 +1,27 @@
+template<typename T> struct A : B
+{
+    struct C
+    {
+        void foo() {
+            bar();
+        }
+    };
+};
+
+struct D {
+    void baz() {
+    }
+    int qux;
+};
+
+if (true) {
+    if (true) {
+        foo;
+    }
+    bar;
+}
+
+    foo(bar) {}
+{
+    baz;
+}

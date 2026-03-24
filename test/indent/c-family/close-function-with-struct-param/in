@@ -1,0 +1,18 @@
+void f(int i,
+       struct S s)
+{
+%( )
+
+void g(int i,
+       struct S s) {
+%( )
+
+struct T {
+    void h(int i,
+           struct S s) const {
+    %( )
+
+    void i(int i,
+           struct S s) const final {
+    %( )
+};
