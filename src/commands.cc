@@ -2931,6 +2931,8 @@ const CommandDesc tree_select_cmd = {
         QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
@@ -2945,6 +2947,11 @@ const CommandDesc tree_select_cmd = {
             TSQueryMatch match;
             while (ts_query_cursor_next_match(qcursor, &match))
             {
+                if (match.pattern_index < (uint32_t)to_preds.size()
+                    and not to_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
                 for (uint32_t c = 0; c < match.capture_count; ++c)
                 {
                     if (match.captures[c].index != target_capture)
@@ -3008,6 +3015,8 @@ const CommandDesc tree_select_next_cmd = {
         QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
@@ -3022,6 +3031,11 @@ const CommandDesc tree_select_next_cmd = {
             TSQueryMatch match;
             while (ts_query_cursor_next_match(qcursor, &match))
             {
+                if (match.pattern_index < (uint32_t)to_preds.size()
+                    and not to_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
                 for (uint32_t c = 0; c < match.capture_count; ++c)
                 {
                     if (match.captures[c].index != target_capture)
@@ -3080,6 +3094,8 @@ const CommandDesc tree_select_prev_cmd = {
         QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 256);
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         for (auto& sel : selections)
         {
             auto cursor = sel.cursor();
@@ -3094,6 +3110,11 @@ const CommandDesc tree_select_prev_cmd = {
             TSQueryMatch match;
             while (ts_query_cursor_next_match(qcursor, &match))
             {
+                if (match.pattern_index < (uint32_t)to_preds.size()
+                    and not to_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
                 for (uint32_t c = 0; c < match.capture_count; ++c)
                 {
                     if (match.captures[c].index != target_capture)
@@ -3437,10 +3458,17 @@ const CommandDesc tree_select_all_cmd = {
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         Vector<Selection, MemoryDomain::Selections> new_selections;
         TSQueryMatch match;
         while (ts_query_cursor_next_match(cursor, &match))
         {
+            if (match.pattern_index < (uint32_t)to_preds.size()
+                and not to_preds[(int)match.pattern_index].empty()
+                and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                continue;
+
             for (uint32_t c = 0; c < match.capture_count; ++c)
             {
                 if (match.captures[c].index != target)
@@ -3484,10 +3512,17 @@ const CommandDesc tree_filter_cmd = {
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         Vector<BufferRange> object_ranges;
         TSQueryMatch match;
         while (ts_query_cursor_next_match(cursor, &match))
         {
+            if (match.pattern_index < (uint32_t)to_preds.size()
+                and not to_preds[(int)match.pattern_index].empty()
+                and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                continue;
+
             for (uint32_t c = 0; c < match.capture_count; ++c)
             {
                 if (match.captures[c].index != target)
@@ -3692,10 +3727,17 @@ const CommandDesc tree_fold_all_cmd = {
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& to_preds = syntax_tree.config()->textobject_predicates();
+
         Vector<String> range_strs;
         TSQueryMatch match;
         while (ts_query_cursor_next_match(cursor, &match))
         {
+            if (match.pattern_index < (uint32_t)to_preds.size()
+                and not to_preds[(int)match.pattern_index].empty()
+                and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                continue;
+
             for (uint32_t c = 0; c < match.capture_count; ++c)
             {
                 if (match.captures[c].index != target)
@@ -3784,6 +3826,8 @@ const CommandDesc tree_update_context_cmd = {
             uint32_t func_capture = find_capture_index(query, "function.around");
             uint32_t class_capture = find_capture_index(query, "class.around");
 
+            const auto& to_preds = config->textobject_predicates();
+
             // O(depth): find node at visible line, walk up looking for
             // a function/class ancestor that starts above the viewport.
             auto& byte_index = syntax_tree.byte_index();
@@ -3808,6 +3852,11 @@ const CommandDesc tree_update_context_cmd = {
                     bool is_context_node = false;
                     while (ts_query_cursor_next_match(qcursor, &match))
                     {
+                        if (match.pattern_index < (uint32_t)to_preds.size()
+                            and not to_preds[(int)match.pattern_index].empty()
+                            and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                            continue;
+
                         for (uint32_t c = 0; c < match.capture_count; ++c)
                         {
                             if ((match.captures[c].index == func_capture or
@@ -3882,6 +3931,8 @@ const CommandDesc tree_indent_cmd = {
         ts_query_cursor_set_match_limit(cursor, 256);
         ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& ind_preds = config->indent_predicates();
+
         // Build per-line indent adjustments
         auto line_count = (int)buffer.line_count();
         Vector<int> indent_delta(line_count, 0);
@@ -3890,6 +3941,14 @@ const CommandDesc tree_indent_cmd = {
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
         {
+            if (match.pattern_index < (uint32_t)ind_preds.size()
+                and not ind_preds[(int)match.pattern_index].empty()
+                and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
+            {
+                ts_query_cursor_remove_match(cursor, match.id);
+                continue;
+            }
+
             auto& cap = match.captures[capture_index];
             TSPoint start = ts_node_start_point(cap.node);
             TSPoint end = ts_node_end_point(cap.node);
@@ -4020,11 +4079,21 @@ const CommandDesc tree_indent_newline_cmd = {
             {cur_row + 1, 0});
         ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& ind_preds = config->indent_predicates();
+
         int indent_delta = 0;
         TSQueryMatch match;
         uint32_t cap_index;
         while (ts_query_cursor_next_capture(qcursor, &match, &cap_index))
         {
+            if (match.pattern_index < (uint32_t)ind_preds.size()
+                and not ind_preds[(int)match.pattern_index].empty()
+                and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
+            {
+                ts_query_cursor_remove_match(qcursor, match.id);
+                continue;
+            }
+
             auto& cap = match.captures[cap_index];
             TSPoint start = ts_node_start_point(cap.node);
             TSPoint end = ts_node_end_point(cap.node);
@@ -4140,11 +4209,21 @@ const CommandDesc tree_sitter_highlight_name_cmd = {
         ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
         ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
+        const auto& hl_preds = config->highlight_predicates();
+
         String captures;
         TSQueryMatch match;
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(qcursor, &match, &capture_index))
         {
+            if (match.pattern_index < (uint32_t)hl_preds.size()
+                and not hl_preds[(int)match.pattern_index].empty()
+                and not predicates_match(hl_preds[(int)match.pattern_index], match, buffer))
+            {
+                ts_query_cursor_remove_match(qcursor, match.id);
+                continue;
+            }
+
             auto& cap = match.captures[capture_index];
             uint32_t start = ts_node_start_byte(cap.node);
             uint32_t end = ts_node_end_byte(cap.node);
