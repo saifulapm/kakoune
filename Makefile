@@ -2,6 +2,7 @@
 .SUFFIXES:
 
 CXX = c++
+CC = cc
 
 debug = no
 static = no
@@ -50,6 +51,7 @@ os = $(shell uname | sed 's/.*_NT.*/Windows/')
 os != uname | sed 's/.*_NT.*/Windows/'
 
 LIBS-os-Haiku = -lnetwork -lbe
+LIBS-os-Linux += -ldl
 
 CPPFLAGS-os-OpenBSD = -DKAK_BIN_PATH=\"$(bindir)/kak\"
 mandir-os-OpenBSD = $(DESTDIR)$(PREFIX)/man/man1
@@ -94,20 +96,23 @@ KAK_LIBS = \
 tag = $(tag-debug-$(debug))$(tag-sanitize-$(sanitize))
 tagbin = $(tag)$(tag-static-$(static))
 
-.SUFFIXES: $(tag).o .cc
+.SUFFIXES: $(tag).o .cc .c
 .PHONY: src/kak
 
 sources = $(shell find src -type f -name '*.cc' | sed -e '/\.version\.cc/d')
 sources != find src -type f -name '*.cc' | sed -e '/\.version\.cc/d'
 objects = $(sources:.cc=$(tag).o)
 
+ts_sources = src/tree_sitter/lib.c
+ts_objects = $(ts_sources:.c=$(tag).o)
+
 all: src/kak
 
 src/kak: src/kak$(tagbin)
 	ln -sf kak$(tagbin) $@
 
-src/kak$(tagbin): src/.version$(tag).o $(objects)
-	$(CXX) $(KAK_LDFLAGS) $(KAK_CXXFLAGS) $(objects) src/.version$(tag).o $(KAK_LIBS) -o $@
+src/kak$(tagbin): src/.version$(tag).o $(objects) $(ts_objects)
+	$(CXX) $(KAK_LDFLAGS) $(KAK_CXXFLAGS) $(objects) $(ts_objects) src/.version$(tag).o $(KAK_LIBS) -o $@
 
 deps = $(shell touch src/.version$(tag).d && find src -type f -name '.*$(tag).d') # Ensure we find one deps for FreeBSD make
 deps != touch src/.version$(tag).d && find src -type f -name '.*$(tag).d' # Ensure we find one deps for FreeBSD make
@@ -115,6 +120,9 @@ include $(deps)
 
 .cc$(tag).o:
 	$(CXX) $(KAK_CPPFLAGS) $(KAK_CXXFLAGS) -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
+
+.c$(tag).o:
+	$(CC) -std=c11 $(CXXFLAGS-debug-$(debug)) -Isrc -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
 
 src/.version.cc:
 	echo 'namespace Kakoune { const char *version = "$(version)"; }' > $@
@@ -143,7 +151,7 @@ tags:
 	ctags -R
 
 clean:
-	rm -f $(objects) $(deps) src/.version*
+	rm -f $(objects) $(ts_objects) $(deps) src/.version*
 
 dist: kakoune-$(version).tar.$(compress-suffix-$(compress_bin))
 
