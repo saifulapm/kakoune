@@ -46,7 +46,12 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_injection_language_capture(other.m_injection_language_capture),
       m_textobject_query(other.m_textobject_query),
       m_indent_query(other.m_indent_query),
-      m_locals_query(other.m_locals_query)
+      m_locals_query(other.m_locals_query),
+      m_highlight_predicates(std::move(other.m_highlight_predicates)),
+      m_injection_predicates(std::move(other.m_injection_predicates)),
+      m_textobject_predicates(std::move(other.m_textobject_predicates)),
+      m_indent_predicates(std::move(other.m_indent_predicates)),
+      m_locals_predicates(std::move(other.m_locals_predicates))
 {
     other.m_language = nullptr;
     other.m_highlight_query = nullptr;
@@ -88,6 +93,11 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_textobject_query = other.m_textobject_query;
         m_indent_query = other.m_indent_query;
         m_locals_query = other.m_locals_query;
+        m_highlight_predicates = std::move(other.m_highlight_predicates);
+        m_injection_predicates = std::move(other.m_injection_predicates);
+        m_textobject_predicates = std::move(other.m_textobject_predicates);
+        m_indent_predicates = std::move(other.m_indent_predicates);
+        m_locals_predicates = std::move(other.m_locals_predicates);
 
         other.m_language = nullptr;
         other.m_highlight_query = nullptr;
@@ -130,6 +140,132 @@ const LanguageConfig* LanguageRegistry::get(StringView name)
         return it->value.get();
     }
     return load_language(name);
+}
+
+static void parse_single_predicate(const TSQuery* query,
+                                   const TSQueryPredicateStep* steps,
+                                   uint32_t count,
+                                   Vector<QueryPredicate>& out)
+{
+    if (count < 2 or steps[0].type != TSQueryPredicateStepTypeString)
+        return;
+
+    uint32_t name_len = 0;
+    const char* name_str = ts_query_string_value_for_id(
+        query, steps[0].value_id, &name_len);
+    StringView name{name_str, (ByteCount)name_len};
+
+    // Helper to get capture ID from a step
+    auto get_capture = [](const TSQueryPredicateStep& step) -> Optional<uint32_t> {
+        if (step.type == TSQueryPredicateStepTypeCapture)
+            return step.value_id;
+        return {};
+    };
+
+    // Helper to get string value from a step
+    auto get_string = [&](const TSQueryPredicateStep& step) -> Optional<String> {
+        if (step.type == TSQueryPredicateStepTypeString)
+        {
+            uint32_t len = 0;
+            const char* str = ts_query_string_value_for_id(query, step.value_id, &len);
+            return String{str, (ByteCount)len};
+        }
+        return {};
+    };
+
+    if ((name == "eq?" or name == "not-eq?") and count >= 3)
+    {
+        auto cap = get_capture(steps[1]);
+        if (not cap)
+            return;
+
+        QueryPredicate pred;
+        pred.type = (name == "eq?") ? PredicateType::Eq : PredicateType::NotEq;
+        pred.capture_id = *cap;
+
+        // Second arg can be string or capture
+        if (steps[2].type == TSQueryPredicateStepTypeString)
+            pred.value = *get_string(steps[2]);
+        else if (steps[2].type == TSQueryPredicateStepTypeCapture)
+            pred.capture_id2 = steps[2].value_id;
+        else
+            return;
+
+        out.push_back(std::move(pred));
+    }
+    else if ((name == "match?" or name == "not-match?") and count >= 3)
+    {
+        auto cap = get_capture(steps[1]);
+        auto pattern = get_string(steps[2]);
+        if (not cap or not pattern)
+            return;
+
+        try
+        {
+            QueryPredicate pred;
+            pred.type = (name == "match?") ? PredicateType::Match : PredicateType::NotMatch;
+            pred.capture_id = *cap;
+            pred.regex = Regex{*pattern};
+            out.push_back(std::move(pred));
+        }
+        catch (regex_error&)
+        {
+            write_to_debug_buffer(format("tree-sitter: invalid regex '{}' in predicate, skipping",
+                                         *pattern));
+        }
+    }
+    else if ((name == "any-of?" or name == "not-any-of?") and count >= 3)
+    {
+        auto cap = get_capture(steps[1]);
+        if (not cap)
+            return;
+
+        QueryPredicate pred;
+        pred.type = (name == "any-of?") ? PredicateType::AnyOf : PredicateType::NotAnyOf;
+        pred.capture_id = *cap;
+        for (uint32_t i = 2; i < count; ++i)
+        {
+            auto str = get_string(steps[i]);
+            if (str)
+                pred.values.push_back(std::move(*str));
+        }
+        out.push_back(std::move(pred));
+    }
+    else if (name != "set!")
+    {
+        write_to_debug_buffer(format("tree-sitter: unknown predicate '{}', skipping", name));
+    }
+}
+
+PatternPredicates parse_query_predicates(const TSQuery* query)
+{
+    PatternPredicates result;
+    if (not query)
+        return result;
+
+    uint32_t pattern_count = ts_query_pattern_count(query);
+    result.resize((int)pattern_count);
+
+    for (uint32_t p = 0; p < pattern_count; ++p)
+    {
+        uint32_t step_count = 0;
+        const TSQueryPredicateStep* steps =
+            ts_query_predicates_for_pattern(query, p, &step_count);
+
+        // Split by Done sentinel into individual predicates
+        uint32_t pred_start = 0;
+        for (uint32_t s = 0; s <= step_count; ++s)
+        {
+            if (s == step_count or steps[s].type == TSQueryPredicateStepTypeDone)
+            {
+                if (s > pred_start)
+                    parse_single_predicate(query, steps + pred_start,
+                                           s - pred_start, result[(int)p]);
+                pred_start = s + 1;
+            }
+        }
+    }
+    return result;
 }
 
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
@@ -240,6 +376,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     config.m_highlight_query = query;
     config.m_capture_faces = std::move(faces);
     config.m_grammar_handle = handle;
+    config.m_highlight_predicates = parse_query_predicates(config.m_highlight_query);
 
     // Try to load injections.scm (optional)
     String inj_path = format("{}/runtime/queries/{}/injections.scm", m_runtime_dir, name);
@@ -323,6 +460,8 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                     }
                 }
 
+                config.m_injection_predicates = parse_query_predicates(config.m_injection_query);
+
                 write_to_debug_buffer(format("tree-sitter: loaded injection query for '{}' with {} patterns",
                                              name, pattern_count));
             }
@@ -351,8 +490,11 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                                                       (uint32_t)(int)textobj_text.length(),
                                                       &error_offset, &error_type);
             if (config.m_textobject_query)
+            {
+                config.m_textobject_predicates = parse_query_predicates(config.m_textobject_query);
                 write_to_debug_buffer(format("tree-sitter: loaded textobjects for '{}' with {} captures",
                                              name, ts_query_capture_count(config.m_textobject_query)));
+            }
             else
                 write_to_debug_buffer(format("tree-sitter: textobject query error in {}/textobjects.scm at offset {} type {}",
                                              name, error_offset, (int)error_type));
@@ -375,7 +517,9 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             config.m_indent_query = ts_query_new(lang, indent_text.c_str(),
                                                   (uint32_t)(int)indent_text.length(),
                                                   &error_offset, &error_type);
-            if (not config.m_indent_query)
+            if (config.m_indent_query)
+                config.m_indent_predicates = parse_query_predicates(config.m_indent_query);
+            else
                 write_to_debug_buffer(format("tree-sitter: indent query error in {}/indents.scm at offset {}",
                                              name, error_offset));
         }
@@ -398,8 +542,11 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                                                   (uint32_t)(int)locals_text.length(),
                                                   &error_offset, &error_type);
             if (config.m_locals_query)
+            {
+                config.m_locals_predicates = parse_query_predicates(config.m_locals_query);
                 write_to_debug_buffer(format("tree-sitter: loaded locals for '{}' with {} captures",
                                              name, ts_query_capture_count(config.m_locals_query)));
+            }
             else
                 write_to_debug_buffer(format("tree-sitter: locals query error in {}/locals.scm at offset {} type {}",
                                              name, error_offset, (int)error_type));
