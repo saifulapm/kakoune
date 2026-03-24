@@ -43,6 +43,8 @@ public:
     uint32_t injection_content_capture() const { return m_injection_content_capture; }
     uint32_t injection_language_capture() const { return m_injection_language_capture; }
 
+    TSQuery* textobject_query() const { return m_textobject_query; }
+
 private:
     friend class LanguageRegistry;
 
@@ -56,6 +58,8 @@ private:
     Vector<InjectionPattern, MemoryDomain::Highlight> m_injection_patterns;
     uint32_t m_injection_content_capture = UINT32_MAX;
     uint32_t m_injection_language_capture = UINT32_MAX;
+
+    TSQuery* m_textobject_query = nullptr;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>
