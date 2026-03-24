@@ -3569,12 +3569,17 @@ const CommandDesc tree_fold_cmd = {
             inner_len--;
         String preview{inner_line.substr(inner_ws, std::min(inner_len - inner_ws, 40_byte))};
 
-        // Fold range: from start of second line to end of second-to-last line
+        // Fold range: from start of second line to just before the closing line
+        // Use last_line col 0 as exclusive end, but range-specs are inclusive
+        // so use the last char of the previous line (including its newline)
         BufferCoord fold_begin{first_line + 1, 0_byte};
-        auto prev_line_len = buffer[last_line - 1].length();
-        if (prev_line_len == 0)
+        auto last_inner_line = last_line - 1;
+        auto last_inner_len = buffer[last_inner_line].length();
+        if (last_inner_len == 0)
             throw runtime_error("cannot fold — empty boundary line");
-        BufferCoord fold_end{last_line - 1, prev_line_len - 1};
+        // Include the newline of the last inner line so closing line
+        // starts on its own line. Use char_prev of last_line col 0.
+        BufferCoord fold_end = buffer.char_prev({last_line, 0_byte});
 
         // Build fold text with proper indentation matching the inner line
         String indent{inner_line.substr(0_byte, inner_ws)};
@@ -3708,7 +3713,7 @@ const CommandDesc tree_fold_all_cmd = {
                     continue;
 
                 BufferCoord fold_begin{first_line + 1, 0_byte};
-                BufferCoord fold_end{last_line - 1, prev_line_len - 1};
+                BufferCoord fold_end = buffer.char_prev({last_line, 0_byte});
 
                 int folded_lines = (int)(last_line - first_line) - 1;
                 auto inner_line = buffer[first_line + 1];
