@@ -3424,6 +3424,117 @@ const CommandDesc tree_shrink_cmd = {
     }
 };
 
+const CommandDesc tree_select_all_cmd = {
+    "tree-select-all",
+    nullptr,
+    "tree-select-all <object>: select all occurrences of a text object in buffer",
+    single_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        String capture_name = format("{}.around", object_name);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target = find_capture_index(query, capture_name);
+
+        if (target == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        Vector<Selection, MemoryDomain::Selections> new_selections;
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
+        {
+            for (uint32_t c = 0; c < match.capture_count; ++c)
+            {
+                if (match.captures[c].index != target)
+                    continue;
+                new_selections.push_back(node_to_selection(buffer, match.captures[c].node));
+            }
+        }
+        ts_query_cursor_delete(cursor);
+
+        if (new_selections.empty())
+            throw runtime_error(format("no '{}' found in buffer", object_name));
+
+        context.selections().set(std::move(new_selections), 0);
+    }
+};
+
+const CommandDesc tree_filter_cmd = {
+    "tree-filter",
+    nullptr,
+    "tree-filter <object>: keep only selections inside the given text object",
+    single_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_textobject_query(buffer, syntax_tree);
+
+        auto object_name = parser[0];
+        String capture_name = format("{}.around", object_name);
+
+        auto* query = syntax_tree.config()->textobject_query();
+        uint32_t target = find_capture_index(query, capture_name);
+
+        if (target == UINT32_MAX)
+            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+        // Collect all object ranges
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        Vector<BufferRange> object_ranges;
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
+        {
+            for (uint32_t c = 0; c < match.capture_count; ++c)
+            {
+                if (match.captures[c].index != target)
+                    continue;
+                auto sel = node_to_selection(buffer, match.captures[c].node);
+                object_ranges.push_back({sel.min(), sel.max()});
+            }
+        }
+        ts_query_cursor_delete(cursor);
+
+        // Filter selections: keep only those contained in an object range
+        auto& selections = context.selections();
+        Vector<Selection, MemoryDomain::Selections> kept;
+        for (auto& sel : selections)
+        {
+            for (auto& obj : object_ranges)
+            {
+                if (sel.min() >= obj.begin and sel.max() <= obj.end)
+                {
+                    kept.push_back(sel);
+                    break;
+                }
+            }
+        }
+
+        if (kept.empty())
+            throw runtime_error(format("no selections inside '{}'", object_name));
+
+        selections.set(std::move(kept), 0);
+    }
+};
+
 const CommandDesc tree_indent_cmd = {
     "tree-indent",
     nullptr,
@@ -3718,6 +3829,8 @@ void register_commands()
     register_command(tree_select_node_cmd);
     register_command(tree_expand_cmd);
     register_command(tree_shrink_cmd);
+    register_command(tree_select_all_cmd);
+    register_command(tree_filter_cmd);
     register_command(tree_indent_cmd);
     register_command(tree_indent_newline_cmd);
 }
