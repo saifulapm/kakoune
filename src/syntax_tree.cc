@@ -344,10 +344,17 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
         const uint32_t content_capture = cfg->injection_content_capture();
         const uint32_t language_capture = cfg->injection_language_capture();
         const auto& patterns = cfg->injection_patterns();
+        const auto& inj_preds = cfg->injection_predicates();
 
         TSQueryMatch match;
         while (ts_query_cursor_next_match(cursor, &match))
         {
+            // Filter by predicates
+            if (match.pattern_index < (uint32_t)inj_preds.size()
+                and not inj_preds[(int)match.pattern_index].empty()
+                and not predicates_match(inj_preds[(int)match.pattern_index], match, buffer))
+                continue;
+
             TSNode content_node = {};
             bool has_content = false;
             String lang_name;
