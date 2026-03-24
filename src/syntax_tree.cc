@@ -276,185 +276,153 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
 
     m_injection_layers.clear();
 
-    TSQueryCursor* cursor = ts_query_cursor_new();
-    if (not cursor)
-        return;
+    // Phase 1: Collect all injection ranges from query matches.
+    // IMPORTANT: Do NOT call LanguageRegistry::get() during this phase,
+    // because get() can load new languages which modifies the HashMap
+    // and may invalidate m_config (which points into the HashMap).
 
-    TSNode root = ts_tree_root_node(m_tree);
-    ts_query_cursor_exec(cursor, m_config->injection_query(), root);
-
-    const uint32_t content_capture = m_config->injection_content_capture();
-    const uint32_t language_capture = m_config->injection_language_capture();
-    const auto& patterns = m_config->injection_patterns();
-
-    // Collect ranges per (language, pattern_index) for combined injections
-    // Key: language name, Value: vector of TSRange
     struct PendingInjection
     {
         String language_name;
-        const LanguageConfig* config;
         Vector<TSRange, MemoryDomain::Highlight> ranges;
+        bool combined;
     };
-    // For combined: group by pattern_index + language
-    HashMap<String, PendingInjection, MemoryDomain::Highlight> combined_injections;
+    Vector<PendingInjection, MemoryDomain::Highlight> pending;
 
-    TSQueryMatch match;
-    while (ts_query_cursor_next_match(cursor, &match))
     {
-        // Find content and language captures
-        TSNode content_node = {};
-        bool has_content = false;
-        String lang_name;
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        if (not cursor)
+            return;
 
-        for (uint16_t i = 0; i < match.capture_count; ++i)
+        ts_query_cursor_set_match_limit(cursor, 256);
+
+        TSNode root = ts_tree_root_node(m_tree);
+        ts_query_cursor_exec(cursor, m_config->injection_query(), root);
+
+        const uint32_t content_capture = m_config->injection_content_capture();
+        const uint32_t language_capture = m_config->injection_language_capture();
+        const auto& patterns = m_config->injection_patterns();
+
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
         {
-            const TSQueryCapture& cap = match.captures[i];
-            if (cap.index == content_capture)
+            TSNode content_node = {};
+            bool has_content = false;
+            String lang_name;
+
+            for (uint16_t i = 0; i < match.capture_count; ++i)
             {
-                content_node = cap.node;
-                has_content = true;
+                const TSQueryCapture& cap = match.captures[i];
+                if (cap.index == content_capture)
+                {
+                    content_node = cap.node;
+                    has_content = true;
+                }
+                else if (cap.index == language_capture)
+                {
+                    lang_name = node_text(cap.node, buffer);
+                }
             }
-            else if (cap.index == language_capture)
+
+            if (not has_content)
+                continue;
+
+            if (match.pattern_index < (uint32_t)patterns.size())
             {
-                lang_name = node_text(cap.node, buffer);
+                const auto& pattern = patterns[(int)match.pattern_index];
+                if (not pattern.language.empty())
+                    lang_name = pattern.language;
+            }
+
+            if (lang_name.empty())
+                continue;
+
+            for (auto& c : lang_name)
+                if (c >= 'A' and c <= 'Z')
+                    c = c - 'A' + 'a';
+
+            TSRange range{};
+            range.start_point = ts_node_start_point(content_node);
+            range.end_point = ts_node_end_point(content_node);
+            range.start_byte = ts_node_start_byte(content_node);
+            range.end_byte = ts_node_end_byte(content_node);
+
+            if (range.start_byte >= range.end_byte)
+                continue;
+
+            bool is_combined = match.pattern_index < (uint32_t)patterns.size()
+                               and patterns[(int)match.pattern_index].combined;
+
+            // Check if we can merge with an existing pending entry (same language + combined)
+            bool merged = false;
+            if (is_combined)
+            {
+                for (auto& p : pending)
+                {
+                    if (p.combined and p.language_name == lang_name)
+                    {
+                        p.ranges.push_back(range);
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+
+            if (not merged)
+            {
+                PendingInjection p;
+                p.language_name = std::move(lang_name);
+                p.ranges.push_back(range);
+                p.combined = is_combined;
+                pending.push_back(std::move(p));
             }
         }
 
-        if (not has_content)
-            continue;
-
-        // Determine language from pattern metadata or capture
-        if (match.pattern_index < (uint16_t)patterns.size())
-        {
-            const auto& pattern = patterns[match.pattern_index];
-            if (not pattern.language.empty())
-                lang_name = pattern.language;
-        }
-
-        if (lang_name.empty())
-            continue;
-
-        // Normalize language name to lowercase
-        for (auto& c : lang_name)
-            if (c >= 'A' and c <= 'Z')
-                c = c - 'A' + 'a';
-
-        // Build TSRange from content node
-        TSRange range{};
-        range.start_point = ts_node_start_point(content_node);
-        range.end_point = ts_node_end_point(content_node);
-        range.start_byte = ts_node_start_byte(content_node);
-        range.end_byte = ts_node_end_byte(content_node);
-
-        // Skip empty ranges
-        if (range.start_byte >= range.end_byte)
-            continue;
-
-        bool is_combined = match.pattern_index < (uint16_t)patterns.size()
-                           and patterns[match.pattern_index].combined;
-
-        if (is_combined)
-        {
-            // Group by pattern_index + language for combined injections
-            String key = format("{}:{}", match.pattern_index, lang_name);
-            auto it = combined_injections.find(key);
-            if (it == combined_injections.end())
-            {
-                PendingInjection pending;
-                pending.language_name = lang_name;
-                pending.config = nullptr;
-                pending.ranges.push_back(range);
-                combined_injections[key] = std::move(pending);
-            }
-            else
-            {
-                it->value.ranges.push_back(range);
-            }
-        }
-        else
-        {
-            // Non-combined: create an injection layer immediately
-            if (not LanguageRegistry::has_instance())
-                continue;
-
-            const auto* inj_config = LanguageRegistry::instance().get(lang_name);
-            if (not inj_config or not inj_config->language())
-                continue;
-
-            InjectionLayer layer;
-            layer.language_name = std::move(lang_name);
-            layer.config = inj_config;
-            layer.ranges.push_back(range);
-
-            layer.parser = ts_parser_new();
-            if (not layer.parser)
-                continue;
-
-            if (not ts_parser_set_language(layer.parser, inj_config->language()))
-            {
-                ts_parser_delete(layer.parser);
-                layer.parser = nullptr;
-                continue;
-            }
-
-            ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
-                                          (uint32_t)layer.ranges.size());
-
-            TSInput input{};
-            input.payload = const_cast<Buffer*>(&buffer);
-            input.read = ts_input_read;
-            input.encoding = TSInputEncodingUTF8;
-
-            layer.tree = ts_parser_parse(layer.parser, nullptr, input);
-            if (layer.tree)
-                m_injection_layers.push_back(std::move(layer));
-        }
+        ts_query_cursor_delete(cursor);
     }
 
-    // Process combined injections
-    if (LanguageRegistry::has_instance())
+    // Phase 2: Now that the query cursor is done, load languages and create layers.
+    // It's safe to call LanguageRegistry::get() here.
+    if (not LanguageRegistry::has_instance())
+        return;
+
+    for (auto& p : pending)
     {
-        for (auto& [key, pending] : combined_injections)
+        const auto* inj_config = LanguageRegistry::instance().get(p.language_name);
+        // Re-resolve m_config — get() may have reallocated the HashMap
+        if (m_config)
+            m_config = LanguageRegistry::instance().get(m_config->name());
+        if (not inj_config or not inj_config->language())
+            continue;
+
+        InjectionLayer layer;
+        layer.language_name = std::move(p.language_name);
+        layer.config = inj_config;
+        layer.ranges = std::move(p.ranges);
+
+        layer.parser = ts_parser_new();
+        if (not layer.parser)
+            continue;
+
+        if (not ts_parser_set_language(layer.parser, inj_config->language()))
         {
-            const auto* inj_config = LanguageRegistry::instance().get(pending.language_name);
-            if (not inj_config or not inj_config->language())
-                continue;
-
-            InjectionLayer layer;
-            layer.language_name = std::move(pending.language_name);
-            layer.config = inj_config;
-            layer.ranges = std::move(pending.ranges);
-
-            layer.parser = ts_parser_new();
-            if (not layer.parser)
-                continue;
-
-            if (not ts_parser_set_language(layer.parser, inj_config->language()))
-            {
-                ts_parser_delete(layer.parser);
-                layer.parser = nullptr;
-                continue;
-            }
-
-            ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
-                                          (uint32_t)layer.ranges.size());
-
-            TSInput input{};
-            input.payload = const_cast<Buffer*>(&buffer);
-            input.read = ts_input_read;
-            input.encoding = TSInputEncodingUTF8;
-
-            layer.tree = ts_parser_parse(layer.parser, nullptr, input);
-            if (layer.tree)
-                m_injection_layers.push_back(std::move(layer));
+            ts_parser_delete(layer.parser);
+            layer.parser = nullptr;
+            continue;
         }
+
+        ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
+                                      (uint32_t)layer.ranges.size());
+
+        TSInput input{};
+        input.payload = const_cast<Buffer*>(&buffer);
+        input.read = ts_input_read;
+        input.encoding = TSInputEncodingUTF8;
+
+        layer.tree = ts_parser_parse(layer.parser, nullptr, input);
+        if (layer.tree)
+            m_injection_layers.push_back(std::move(layer));
     }
-
-    ts_query_cursor_delete(cursor);
-
-    if (not m_injection_layers.empty())
-        write_to_debug_buffer(format("tree-sitter: detected {} injection layer(s)",
-                                     m_injection_layers.size()));
 }
 
 static const ValueId syntax_tree_id = get_free_value_id();
