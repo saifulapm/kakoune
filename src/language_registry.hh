@@ -44,6 +44,7 @@ public:
     uint32_t injection_language_capture() const { return m_injection_language_capture; }
 
     TSQuery* textobject_query() const { return m_textobject_query; }
+    TSQuery* indent_query() const { return m_indent_query; }
 
 private:
     friend class LanguageRegistry;
@@ -60,6 +61,7 @@ private:
     uint32_t m_injection_language_capture = UINT32_MAX;
 
     TSQuery* m_textobject_query = nullptr;
+    TSQuery* m_indent_query = nullptr;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>

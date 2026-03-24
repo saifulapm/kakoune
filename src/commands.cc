@@ -3309,6 +3309,96 @@ const CommandDesc tree_select_node_cmd = {
     }
 };
 
+const CommandDesc tree_indent_cmd = {
+    "tree-indent",
+    nullptr,
+    "tree-indent: reindent selection based on AST indent queries",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto* config = syntax_tree.config();
+        if (not config or not config->indent_query())
+            throw runtime_error("no indent query for this buffer's language");
+
+        TSQuery* query = config->indent_query();
+
+        // Find @indent and @outdent capture indices
+        uint32_t indent_capture = find_capture_index(query, "indent");
+        uint32_t outdent_capture = find_capture_index(query, "outdent");
+
+        // Execute indent query on full tree
+        TSQueryCursor* cursor = ts_query_cursor_new();
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        // Build per-line indent adjustments
+        auto line_count = (int)buffer.line_count();
+        Vector<int> indent_delta(line_count, 0);
+
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
+        {
+            auto& cap = match.captures[capture_index];
+            TSPoint start = ts_node_start_point(cap.node);
+            TSPoint end = ts_node_end_point(cap.node);
+
+            if (cap.index == indent_capture)
+            {
+                // Lines inside this node (after the opening line) get +1 indent
+                for (uint32_t line = start.row + 1;
+                     line <= end.row and (int)line < line_count; ++line)
+                    indent_delta[(int)line]++;
+            }
+            else if (cap.index == outdent_capture)
+            {
+                // The line with the outdent token gets -1
+                if ((int)start.row < line_count)
+                    indent_delta[(int)start.row]--;
+            }
+        }
+
+        ts_query_cursor_delete(cursor);
+
+        // Apply indentation to selected lines
+        ColumnCount tabstop = context.options()["tabstop"].get<int>();
+        ColumnCount indent_width = context.options()["indentwidth"].get<int>();
+        if (indent_width == 0)
+            indent_width = tabstop;
+
+        ScopedEdition edition(context);
+        ScopedSelectionEdition selection_edition{context};
+        auto& selections = context.selections();
+        LineCount last_line = 0;
+
+        for (auto& sel : selections)
+        {
+            for (auto line = std::max(last_line, sel.min().line);
+                 line <= sel.max().line; ++line)
+            {
+                int target_level = std::max(0, indent_delta[(int)line]);
+                String indent_str(' ', CharCount{target_level * (int)indent_width});
+
+                // Find end of existing leading whitespace
+                auto content = buffer[line];
+                ByteCount ws_end = 0;
+                while (ws_end < content.length() and
+                       (content[(int)ws_end] == ' ' or content[(int)ws_end] == '\t'))
+                    ws_end++;
+
+                buffer.replace(line, {line, ws_end}, indent_str);
+            }
+            last_line = sel.max().line + 1;
+        }
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -3388,6 +3478,7 @@ void register_commands()
     register_command(tree_next_sibling_cmd);
     register_command(tree_prev_sibling_cmd);
     register_command(tree_select_node_cmd);
+    register_command(tree_indent_cmd);
 }
 
 }
