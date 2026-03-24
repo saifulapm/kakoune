@@ -71,6 +71,17 @@ hook -group tree-sitter-late-init global WinDisplay .* %{
     remove-hooks global tree-sitter-late-init
 }
 
+# Auto-indent on newline using tree-sitter
+hook -group tree-sitter-indent global WinSetOption filetype=.+ %{
+    hook -group tree-sitter-indent window InsertChar \n %{
+        try %{ tree-indent-newline }
+    }
+}
+
+hook -group tree-sitter-indent global WinSetOption filetype= %{
+    remove-hooks window tree-sitter-indent
+}
+
 # Tree-sitter text object key mappings
 # Enter with: map global user t ': enter-user-mode tree<ret>'
 declare-user-mode tree
