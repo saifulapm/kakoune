@@ -53,3 +53,17 @@ hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
 hook -group tree-sitter-auto global WinSetOption filetype= %{
     try %{ remove-highlighter window/tree-sitter }
 }
+
+# Tree-sitter text object key mappings
+# Enter with: map global user t ': enter-user-mode tree<ret>'
+declare-user-mode tree
+
+map global tree f ': tree-select function around<ret>' -docstring 'function (around)'
+map global tree F ': tree-select function inside<ret>' -docstring 'function (inside)'
+map global tree c ': tree-select class around<ret>' -docstring 'class (around)'
+map global tree C ': tree-select class inside<ret>' -docstring 'class (inside)'
+map global tree a ': tree-select parameter around<ret>' -docstring 'parameter (around)'
+map global tree A ': tree-select parameter inside<ret>' -docstring 'parameter (inside)'
+map global tree o ': tree-select comment around<ret>' -docstring 'comment'
+map global tree n ': tree-select-next function<ret>' -docstring 'next function'
+map global tree p ': tree-select-prev function<ret>' -docstring 'prev function'
