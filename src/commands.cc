@@ -2819,7 +2819,7 @@ const CommandDesc tree_sitter_enable_cmd = {
             throw runtime_error(format("no tree-sitter grammar for '{}'", language));
 
         if (not has_syntax_tree(buffer))
-            create_syntax_tree(buffer, config->language(), config->highlight_query());
+            create_syntax_tree(buffer, config);
     }
 };
 

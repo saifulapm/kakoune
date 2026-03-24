@@ -2467,7 +2467,7 @@ private:
         {
             try
             {
-                create_syntax_tree(buffer, config->language(), config->highlight_query());
+                create_syntax_tree(buffer, config);
             }
             catch (runtime_error&)
             {
