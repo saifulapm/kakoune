@@ -3590,7 +3590,7 @@ const CommandDesc tree_fold_cmd = {
         String range_str = format("{}.{},{}.{}|",
                                   fold_begin.line + 1, fold_begin.column + 1,
                                   fold_end.line + 1, fold_end.column + 1);
-        range_str += "{comment}";
+        range_str += "{ts_fold}";
         range_str += indent;
         range_str += format("+-- {} lines: {}\n", folded_lines, preview);
 
@@ -3732,7 +3732,7 @@ const CommandDesc tree_fold_all_cmd = {
                 String rs = format("{}.{},{}.{}|",
                                    fold_begin.line + 1, fold_begin.column + 1,
                                    fold_end.line + 1, fold_end.column + 1);
-                rs += "{comment}";
+                rs += "{ts_fold}";
                 rs += indent;
                 rs += format("+-- {} lines: {}\n", folded_lines, preview);
                 range_strs.push_back(std::move(rs));

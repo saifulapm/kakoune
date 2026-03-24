@@ -51,6 +51,9 @@ set-face global ts_rainbow_4 blue
 set-face global ts_rainbow_5 magenta
 set-face global ts_rainbow_6 cyan
 
+# Fold face — for fold summary lines (inherits from comment, adds italic)
+set-face global ts_fold comment
+
 # Code folding support
 declare-option range-specs tree_sitter_folds
 
