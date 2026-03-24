@@ -1,47 +1,177 @@
-# Tree-sitter face definitions
-set-face global ts_attribute              attribute
-set-face global ts_comment                comment
-set-face global ts_comment_block          comment
-set-face global ts_comment_line           comment
-set-face global ts_constant               value
-set-face global ts_constant_builtin       builtin
-set-face global ts_constructor            function
-set-face global ts_function               function
-set-face global ts_function_builtin       builtin
-set-face global ts_function_macro         function
-set-face global ts_function_method        function
-set-face global ts_keyword                keyword
-set-face global ts_keyword_control        keyword
-set-face global ts_keyword_control_conditional keyword
-set-face global ts_keyword_control_import keyword
-set-face global ts_keyword_control_repeat keyword
-set-face global ts_keyword_control_return keyword
-set-face global ts_keyword_directive      meta
-set-face global ts_keyword_function       keyword
-set-face global ts_keyword_operator       operator
-set-face global ts_keyword_storage        keyword
-set-face global ts_keyword_storage_modifier keyword
-set-face global ts_keyword_storage_type   type
-set-face global ts_label                  meta
-set-face global ts_namespace              module
-set-face global ts_operator               operator
-set-face global ts_property               variable
-set-face global ts_punctuation            default
-set-face global ts_punctuation_bracket    default
-set-face global ts_punctuation_delimiter  default
-set-face global ts_special                meta
-set-face global ts_string                 string
-set-face global ts_string_escape          value
-set-face global ts_string_regexp          meta
-set-face global ts_string_special         meta
-set-face global ts_tag                    keyword
-set-face global ts_type                   type
-set-face global ts_type_builtin           builtin
-set-face global ts_type_enum_variant      value
-set-face global ts_variable               variable
-set-face global ts_variable_builtin       builtin
-set-face global ts_variable_other_member  variable
-set-face global ts_variable_parameter     variable
+# Tree-sitter highlight group faces
+# Maps tree-sitter capture names to Kakoune faces
+# Naming: @capture.name → ts_capture_name (dots → underscores)
+
+# --- Variables ---
+set-face global ts_variable                          variable
+set-face global ts_variable_builtin                  builtin
+set-face global ts_variable_parameter                variable
+set-face global ts_variable_parameter_builtin        builtin
+set-face global ts_variable_member                   variable
+set-face global ts_variable_other_member             variable
+set-face global ts_variable_other_member_private     variable
+
+# --- Constants ---
+set-face global ts_constant                          value
+set-face global ts_constant_builtin                  builtin
+set-face global ts_constant_builtin_boolean          value
+set-face global ts_constant_character                value
+set-face global ts_constant_character_escape         value
+set-face global ts_constant_macro                    meta
+set-face global ts_constant_numeric                  value
+
+# --- Numbers (alternative captures) ---
+set-face global ts_constant_integer                  value
+set-face global ts_constant_float                    value
+set-face global ts_number                            value
+set-face global ts_number_float                      value
+set-face global ts_boolean                           value
+set-face global ts_character                         value
+set-face global ts_character_special                 value
+
+# --- Modules ---
+set-face global ts_module                            module
+set-face global ts_module_builtin                    builtin
+set-face global ts_namespace                         module
+set-face global ts_label                             meta
+
+# --- Strings ---
+set-face global ts_string                            string
+set-face global ts_string_documentation              string
+set-face global ts_string_regexp                     meta
+set-face global ts_string_escape                     value
+set-face global ts_string_special                    meta
+set-face global ts_string_special_symbol             meta
+set-face global ts_string_special_url                link
+set-face global ts_string_special_path               string
+
+# --- Types ---
+set-face global ts_type                              type
+set-face global ts_type_builtin                      builtin
+set-face global ts_type_definition                   type
+set-face global ts_type_parameter                    type
+set-face global ts_type_enum                         type
+set-face global ts_type_enum_variant                 value
+
+# --- Attributes ---
+set-face global ts_attribute                         attribute
+set-face global ts_attribute_builtin                 attribute
+set-face global ts_property                          variable
+
+# --- Functions ---
+set-face global ts_function                          function
+set-face global ts_function_builtin                  builtin
+set-face global ts_function_call                     function
+set-face global ts_function_macro                    function
+set-face global ts_function_method                   function
+set-face global ts_function_method_call              function
+set-face global ts_function_method_private           function
+set-face global ts_function_special                  function
+set-face global ts_constructor                       function
+
+# --- Operators ---
+set-face global ts_operator                          operator
+
+# --- Keywords ---
+set-face global ts_keyword                           keyword
+set-face global ts_keyword_coroutine                 keyword
+set-face global ts_keyword_function                  keyword
+set-face global ts_keyword_operator                  operator
+set-face global ts_keyword_import                    keyword
+set-face global ts_keyword_type                      keyword
+set-face global ts_keyword_modifier                  keyword
+set-face global ts_keyword_repeat                    keyword
+set-face global ts_keyword_return                    keyword
+set-face global ts_keyword_debug                     keyword
+set-face global ts_keyword_exception                 keyword
+set-face global ts_keyword_conditional               keyword
+set-face global ts_keyword_conditional_ternary       keyword
+set-face global ts_keyword_directive                 meta
+set-face global ts_keyword_directive_define          meta
+set-face global ts_keyword_storage                   keyword
+set-face global ts_keyword_storage_type              type
+set-face global ts_keyword_storage_modifier          keyword
+set-face global ts_keyword_deprecated                keyword
+set-face global ts_keyword_control                   keyword
+set-face global ts_keyword_control_conditional       keyword
+set-face global ts_keyword_control_repeat            keyword
+set-face global ts_keyword_control_import            keyword
+set-face global ts_keyword_control_return            keyword
+set-face global ts_keyword_control_exception         keyword
+
+# --- Punctuation ---
+set-face global ts_punctuation                       default
+set-face global ts_punctuation_delimiter             default
+set-face global ts_punctuation_bracket               default
+set-face global ts_punctuation_special               meta
+
+# --- Comments ---
+set-face global ts_comment                           comment
+set-face global ts_comment_line                      comment
+set-face global ts_comment_line_documentation        documentation
+set-face global ts_comment_block                     comment
+set-face global ts_comment_block_documentation       documentation
+set-face global ts_comment_unused                    comment
+set-face global ts_comment_documentation             documentation
+set-face global ts_comment_error                     Error
+set-face global ts_comment_warning                   Error
+set-face global ts_comment_todo                      comment
+set-face global ts_comment_note                      comment
+
+# --- Markup ---
+set-face global ts_markup                            default
+set-face global ts_markup_strong                     default
+set-face global ts_markup_bold                       default
+set-face global ts_markup_italic                     default
+set-face global ts_markup_strikethrough              default
+set-face global ts_markup_underline                  default
+set-face global ts_markup_heading                    title
+set-face global ts_markup_heading_marker             title
+set-face global ts_markup_heading_1                  title
+set-face global ts_markup_heading_2                  title
+set-face global ts_markup_heading_3                  title
+set-face global ts_markup_heading_4                  title
+set-face global ts_markup_heading_5                  title
+set-face global ts_markup_heading_6                  title
+set-face global ts_markup_quote                      comment
+set-face global ts_markup_math                       value
+set-face global ts_markup_link                       link
+set-face global ts_markup_link_label                 link
+set-face global ts_markup_link_url                   link
+set-face global ts_markup_link_text                  link
+set-face global ts_markup_raw                        mono
+set-face global ts_markup_raw_block                  mono
+set-face global ts_markup_raw_inline                 mono
+set-face global ts_markup_list                       bullet
+set-face global ts_markup_list_checked               bullet
+set-face global ts_markup_list_unchecked             bullet
+set-face global ts_markup_list_unnumbered            bullet
+set-face global ts_markup_list_numbered              bullet
+
+# --- Diff ---
+set-face global ts_diff                              default
+set-face global ts_diff_plus                         green
+set-face global ts_diff_plus_gutter                  green
+set-face global ts_diff_minus                        red
+set-face global ts_diff_minus_gutter                 red
+set-face global ts_diff_delta                        yellow
+set-face global ts_diff_delta_moved                  yellow
+set-face global ts_diff_delta_conflict               red
+set-face global ts_diff_delta_gutter                 yellow
+
+# --- Tags (HTML/XML) ---
+set-face global ts_tag                               keyword
+set-face global ts_tag_builtin                       keyword
+set-face global ts_tag_attribute                     attribute
+set-face global ts_tag_delimiter                     default
+
+# --- Special ---
+set-face global ts_text                              default
+set-face global ts_text_reference                    link
+set-face global ts_none                              default
+set-face global ts_special                           meta
+set-face global ts_conceal                           default
+set-face global ts_embedded                          default
 
 # Rainbow bracket faces (depth-cycled)
 set-face global ts_rainbow_1 red
