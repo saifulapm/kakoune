@@ -2516,6 +2516,47 @@ private:
             highlight_range(display_buffer, begin_coord, end_coord, false,
                 apply_face(face));
         }
+
+        // Detect and highlight injection layers
+        syntax_tree.detect_injections(buffer);
+
+        for (auto& layer : syntax_tree.injection_layers())
+        {
+            if (not layer.tree or not layer.config)
+                continue;
+
+            auto* inj_query = layer.config->highlight_query();
+            if (not inj_query)
+                continue;
+
+            ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
+            ts_query_cursor_exec(m_cursor, inj_query, ts_tree_root_node(layer.tree));
+
+            TSQueryMatch inj_match;
+            uint32_t inj_capture_index;
+
+            while (ts_query_cursor_next_capture(m_cursor, &inj_match, &inj_capture_index))
+            {
+                const TSQueryCapture& inj_capture = inj_match.captures[inj_capture_index];
+
+                if (inj_capture.index >= layer.config->capture_faces().size())
+                    continue;
+
+                const auto& inj_face_name = layer.config->capture_faces()[inj_capture.index];
+
+                TSPoint inj_start = ts_node_start_point(inj_capture.node);
+                TSPoint inj_end   = ts_node_end_point(inj_capture.node);
+
+                BufferCoord inj_begin_coord{LineCount{(int)inj_start.row},
+                                            ByteCount{(int)inj_start.column}};
+                BufferCoord inj_end_coord{LineCount{(int)inj_end.row},
+                                          ByteCount{(int)inj_end.column}};
+
+                Face inj_face = context.context.faces()[inj_face_name];
+                highlight_range(display_buffer, inj_begin_coord, inj_end_coord, false,
+                    apply_face(inj_face));
+            }
+        }
     }
 };
 
