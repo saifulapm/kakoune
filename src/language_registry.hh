@@ -3,6 +3,7 @@
 
 #include "hash_map.hh"
 #include "string.hh"
+#include "unique_ptr.hh"
 #include "utils.hh"
 #include "vector.hh"
 #include "tree_sitter.hh"
@@ -77,7 +78,8 @@ private:
     const LanguageConfig* load_language(StringView name);
 
     String m_runtime_dir;
-    HashMap<String, LanguageConfig, MemoryDomain::Highlight> m_languages;
+    // Store UniquePtr so HashMap reallocation doesn't move/invalidate LanguageConfig objects
+    HashMap<String, UniquePtr<LanguageConfig>, MemoryDomain::Highlight> m_languages;
 };
 
 } // namespace Kakoune

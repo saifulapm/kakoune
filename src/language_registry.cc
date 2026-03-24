@@ -117,9 +117,9 @@ const LanguageConfig* LanguageRegistry::get(StringView name)
     auto it = m_languages.find(name);
     if (it != m_languages.end())
     {
-        if (it->value.m_language == nullptr)
+        if (not it->value or it->value->m_language == nullptr)
             return nullptr;
-        return &it->value;
+        return it->value.get();
     }
     return load_language(name);
 }
@@ -142,7 +142,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     {
         write_to_debug_buffer(format("tree-sitter: failed to load grammar '{}': {}",
                                      name, dlerror()));
-        m_languages[name.str()] = LanguageConfig{};
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
         return nullptr;
     }
 
@@ -155,7 +155,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         write_to_debug_buffer(format("tree-sitter: symbol '{}' not found in grammar library: {}",
                                      symbol_name, dlerror()));
         dlclose(handle);
-        m_languages[name.str()] = LanguageConfig{};
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
         return nullptr;
     }
 
@@ -173,7 +173,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         write_to_debug_buffer(format("tree-sitter: failed to read query file '{}': {}",
                                      query_path, err.what()));
         dlclose(handle);
-        m_languages[name.str()] = LanguageConfig{};
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
         return nullptr;
     }
 
@@ -188,7 +188,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         write_to_debug_buffer(format("tree-sitter: query compilation failed for '{}' at offset {}, error type {}",
                                      name, error_offset, (int)error_type));
         dlclose(handle);
-        m_languages[name.str()] = LanguageConfig{};
+        m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
         return nullptr;
     }
 
@@ -355,11 +355,13 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         // No indents.scm file — that is fine, not all languages have one
     }
 
-    auto& stored = (m_languages[name.str()] = std::move(config));
+    auto ptr = make_unique_ptr<LanguageConfig>(std::move(config));
+    auto* raw = ptr.get();
+    m_languages[name.str()] = std::move(ptr);
 
     write_to_debug_buffer(format("tree-sitter: loaded grammar '{}' with {} captures",
                                  name, capture_count));
-    return &stored;
+    return raw;
 }
 
 } // namespace Kakoune

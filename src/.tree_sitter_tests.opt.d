@@ -594,7 +594,8 @@ src/tree_sitter_tests.opt.o: src/tree_sitter_tests.cc \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__iterator/permutable.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__iterator/sortable.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/concepts \
-  src/utils.hh src/tree_sitter.hh src/tree_sitter/api.h \
+  src/unique_ptr.hh src/utils.hh src/tree_sitter.hh \
+  src/tree_sitter/api.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/stdbool.h \
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include/stdbool.h \
   src/syntax_tree.hh src/buffer.hh src/clock.hh \
@@ -747,8 +748,8 @@ src/tree_sitter_tests.opt.o: src/tree_sitter_tests.cc \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__exception/nested_exception.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__exception/terminate.h \
   src/flags.hh src/optional.hh src/option.hh src/range.hh \
-  src/safe_ptr.hh src/ref_ptr.hh src/scope.hh src/unique_ptr.hh \
-  src/shared_string.hh src/value.hh src/buffer.inl.hh src/unit_tests.hh
+  src/safe_ptr.hh src/ref_ptr.hh src/scope.hh src/shared_string.hh \
+  src/value.hh src/buffer.inl.hh src/unit_tests.hh
 src/language_registry.hh:
 src/hash_map.hh:
 src/hash.hh:
@@ -1351,6 +1352,7 @@ src/array_view.hh:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__iterator/permutable.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__iterator/sortable.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/concepts:
+src/unique_ptr.hh:
 src/utils.hh:
 src/tree_sitter.hh:
 src/tree_sitter/api.h:
@@ -1518,7 +1520,6 @@ src/range.hh:
 src/safe_ptr.hh:
 src/ref_ptr.hh:
 src/scope.hh:
-src/unique_ptr.hh:
 src/shared_string.hh:
 src/value.hh:
 src/buffer.inl.hh:
