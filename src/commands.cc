@@ -4062,6 +4062,147 @@ const CommandDesc tree_indent_newline_cmd = {
     }
 };
 
+const CommandDesc tree_sitter_scopes_cmd = {
+    "tree-sitter-scopes",
+    nullptr,
+    "tree-sitter-scopes: show highlight captures at cursor position",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto* config = syntax_tree.config();
+        if (not config or not config->highlight_query())
+            throw runtime_error("no highlight query for this buffer");
+
+        auto* query = config->highlight_query();
+        auto& byte_index = syntax_tree.byte_index();
+        auto cursor = context.selections().main().cursor();
+        uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+        QueryCursorGuard qcursor;
+        ts_query_cursor_set_match_limit(qcursor, 256);
+        ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
+        ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        String scopes;
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(qcursor, &match, &capture_index))
+        {
+            auto& cap = match.captures[capture_index];
+            uint32_t start = ts_node_start_byte(cap.node);
+            uint32_t end = ts_node_end_byte(cap.node);
+            if (start <= cursor_byte and cursor_byte < end)
+            {
+                uint32_t len;
+                const char* name = ts_query_capture_name_for_id(query, cap.index, &len);
+                auto face_name = capture_to_face_name({name, (ByteCount)len});
+                if (not scopes.empty())
+                    scopes += "\n";
+                scopes += format("@{} -> {}", StringView{name, (ByteCount)len}, face_name);
+            }
+        }
+
+        if (scopes.empty())
+            scopes = "(no captures at cursor)";
+
+        if (context.has_client())
+            context.client().info_show("Scopes", scopes, {}, InfoStyle::Prompt);
+    }
+};
+
+const CommandDesc tree_sitter_highlight_name_cmd = {
+    "tree-sitter-highlight-name",
+    nullptr,
+    "tree-sitter-highlight-name: show the winning highlight face at cursor position",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto* config = syntax_tree.config();
+        if (not config or not config->highlight_query())
+            throw runtime_error("no highlight query for this buffer");
+
+        auto* query = config->highlight_query();
+        auto& byte_index = syntax_tree.byte_index();
+        auto cursor = context.selections().main().cursor();
+        uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+        QueryCursorGuard qcursor;
+        ts_query_cursor_set_match_limit(qcursor, 256);
+        ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
+        ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        // Last matching capture wins (tree-sitter precedence order)
+        String winning_capture;
+        String winning_face;
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(qcursor, &match, &capture_index))
+        {
+            auto& cap = match.captures[capture_index];
+            uint32_t start = ts_node_start_byte(cap.node);
+            uint32_t end = ts_node_end_byte(cap.node);
+            if (start <= cursor_byte and cursor_byte < end)
+            {
+                uint32_t len;
+                const char* name = ts_query_capture_name_for_id(query, cap.index, &len);
+                winning_capture = String{name, (ByteCount)len};
+                winning_face = capture_to_face_name(winning_capture);
+            }
+        }
+
+        String result;
+        if (winning_capture.empty())
+            result = "(no highlight at cursor)";
+        else
+            result = format("@{} -> {}", winning_capture, winning_face);
+
+        if (context.has_client())
+            context.client().info_show("Highlight", result, {}, InfoStyle::Prompt);
+    }
+};
+
+const CommandDesc tree_sitter_subtree_cmd = {
+    "tree-sitter-subtree",
+    nullptr,
+    "tree-sitter-subtree: show AST subtree at cursor as S-expression",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto cursor = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor);
+        if (ts_node_is_null(node))
+            throw runtime_error("no AST node at cursor");
+
+        char* sexp = ts_node_string(node);
+        String result{sexp};
+        free(sexp);
+
+        if (context.has_client())
+            context.client().info_show("Subtree", result, {}, InfoStyle::Prompt);
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -4152,6 +4293,9 @@ void register_commands()
     register_command(tree_update_context_cmd);
     register_command(tree_indent_cmd);
     register_command(tree_indent_newline_cmd);
+    register_command(tree_sitter_scopes_cmd);
+    register_command(tree_sitter_highlight_name_cmd);
+    register_command(tree_sitter_subtree_cmd);
 }
 
 }
