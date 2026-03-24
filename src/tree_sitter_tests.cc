@@ -98,4 +98,20 @@ UnitTest test_filetype_to_language{[]()
     kak_assert(LanguageRegistry::filetype_to_language("python") == "python");
 }};
 
+UnitTest test_injection_pattern_defaults{[]()
+{
+    InjectionPattern pattern;
+    kak_assert(pattern.language.empty());
+    kak_assert(pattern.combined == false);
+    kak_assert(pattern.include_children == false);
+
+    InjectionPattern with_lang;
+    with_lang.language = "rust";
+    with_lang.combined = true;
+    with_lang.include_children = true;
+    kak_assert(with_lang.language == "rust");
+    kak_assert(with_lang.combined == true);
+    kak_assert(with_lang.include_children == true);
+}};
+
 } // namespace Kakoune

@@ -20,6 +20,8 @@ String capture_to_face_name(StringView capture_name)
 
 LanguageConfig::~LanguageConfig()
 {
+    if (m_injection_query)
+        ts_query_delete(m_injection_query);
     if (m_highlight_query)
         ts_query_delete(m_highlight_query);
     if (m_grammar_handle)
@@ -31,17 +33,26 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_language(other.m_language),
       m_highlight_query(other.m_highlight_query),
       m_capture_faces(std::move(other.m_capture_faces)),
-      m_grammar_handle(other.m_grammar_handle)
+      m_grammar_handle(other.m_grammar_handle),
+      m_injection_query(other.m_injection_query),
+      m_injection_patterns(std::move(other.m_injection_patterns)),
+      m_injection_content_capture(other.m_injection_content_capture),
+      m_injection_language_capture(other.m_injection_language_capture)
 {
     other.m_language = nullptr;
     other.m_highlight_query = nullptr;
     other.m_grammar_handle = nullptr;
+    other.m_injection_query = nullptr;
+    other.m_injection_content_capture = UINT32_MAX;
+    other.m_injection_language_capture = UINT32_MAX;
 }
 
 LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
 {
     if (this != &other)
     {
+        if (m_injection_query)
+            ts_query_delete(m_injection_query);
         if (m_highlight_query)
             ts_query_delete(m_highlight_query);
         if (m_grammar_handle)
@@ -52,10 +63,17 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_highlight_query = other.m_highlight_query;
         m_capture_faces = std::move(other.m_capture_faces);
         m_grammar_handle = other.m_grammar_handle;
+        m_injection_query = other.m_injection_query;
+        m_injection_patterns = std::move(other.m_injection_patterns);
+        m_injection_content_capture = other.m_injection_content_capture;
+        m_injection_language_capture = other.m_injection_language_capture;
 
         other.m_language = nullptr;
         other.m_highlight_query = nullptr;
         other.m_grammar_handle = nullptr;
+        other.m_injection_query = nullptr;
+        other.m_injection_content_capture = UINT32_MAX;
+        other.m_injection_language_capture = UINT32_MAX;
     }
     return *this;
 }
@@ -176,6 +194,103 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     config.m_highlight_query = query;
     config.m_capture_faces = std::move(faces);
     config.m_grammar_handle = handle;
+
+    // Try to load injections.scm (optional)
+    String inj_path = format("{}/runtime/queries/{}/injections.scm", m_runtime_dir, name);
+    try
+    {
+        String injection_text = read_file(inj_path);
+        if (not injection_text.empty())
+        {
+            uint32_t inj_error_offset = 0;
+            TSQueryError inj_error_type = TSQueryErrorNone;
+            TSQuery* inj_query = ts_query_new(lang, injection_text.c_str(),
+                                               (uint32_t)(int)injection_text.length(),
+                                               &inj_error_offset, &inj_error_type);
+            if (inj_query)
+            {
+                config.m_injection_query = inj_query;
+
+                // Find capture indices for @injection.content and @injection.language
+                uint32_t cap_count = ts_query_capture_count(inj_query);
+                for (uint32_t i = 0; i < cap_count; ++i)
+                {
+                    uint32_t len = 0;
+                    const char* cap_name = ts_query_capture_name_for_id(inj_query, i, &len);
+                    StringView cap{cap_name, (ByteCount)len};
+                    if (cap == "injection.content")
+                        config.m_injection_content_capture = i;
+                    else if (cap == "injection.language")
+                        config.m_injection_language_capture = i;
+                }
+
+                // Extract #set! predicates per pattern
+                uint32_t pattern_count = ts_query_pattern_count(inj_query);
+                config.m_injection_patterns.resize((int)pattern_count);
+
+                for (uint32_t p = 0; p < pattern_count; ++p)
+                {
+                    uint32_t step_count = 0;
+                    const TSQueryPredicateStep* steps =
+                        ts_query_predicates_for_pattern(inj_query, p, &step_count);
+
+                    for (uint32_t s = 0; s < step_count; ++s)
+                    {
+                        if (steps[s].type != TSQueryPredicateStepTypeString)
+                            continue;
+
+                        uint32_t pred_len = 0;
+                        const char* pred_name = ts_query_string_value_for_id(
+                            inj_query, steps[s].value_id, &pred_len);
+                        StringView pred{pred_name, (ByteCount)pred_len};
+
+                        if (pred == "set!" and s + 2 < step_count
+                            and steps[s+1].type == TSQueryPredicateStepTypeString)
+                        {
+                            uint32_t key_len = 0;
+                            const char* key_str = ts_query_string_value_for_id(
+                                inj_query, steps[s+1].value_id, &key_len);
+                            StringView key{key_str, (ByteCount)key_len};
+
+                            if (key == "injection.language"
+                                and s + 2 < step_count
+                                and steps[s+2].type == TSQueryPredicateStepTypeString)
+                            {
+                                uint32_t val_len = 0;
+                                const char* val_str = ts_query_string_value_for_id(
+                                    inj_query, steps[s+2].value_id, &val_len);
+                                config.m_injection_patterns[(int)p].language =
+                                    String{val_str, (ByteCount)val_len};
+                                s += 2;
+                            }
+                            else if (key == "injection.combined")
+                            {
+                                config.m_injection_patterns[(int)p].combined = true;
+                                s += 1;
+                            }
+                            else if (key == "injection.include-children")
+                            {
+                                config.m_injection_patterns[(int)p].include_children = true;
+                                s += 1;
+                            }
+                        }
+                    }
+                }
+
+                write_to_debug_buffer(format("tree-sitter: loaded injection query for '{}' with {} patterns",
+                                             name, pattern_count));
+            }
+            else
+            {
+                write_to_debug_buffer(format("tree-sitter: injection query error in {}/injections.scm at offset {}",
+                                             name, inj_error_offset));
+            }
+        }
+    }
+    catch (runtime_error&)
+    {
+        // No injections.scm file — that is fine, not all languages have one
+    }
 
     auto& stored = (m_languages[name.str()] = std::move(config));
 

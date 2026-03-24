@@ -7,10 +7,19 @@
 #include "vector.hh"
 #include "tree_sitter.hh"
 
+#include <climits>
+
 namespace Kakoune
 {
 
 String capture_to_face_name(StringView capture_name);
+
+struct InjectionPattern
+{
+    String language;                // from #set! injection.language "..."
+    bool combined = false;          // from #set! injection.combined
+    bool include_children = false;  // from #set! injection.include-children
+};
 
 class LanguageConfig
 {
@@ -29,6 +38,11 @@ public:
     TSQuery* highlight_query() const { return m_highlight_query; }
     const Vector<String>& capture_faces() const { return m_capture_faces; }
 
+    TSQuery* injection_query() const { return m_injection_query; }
+    const Vector<InjectionPattern, MemoryDomain::Highlight>& injection_patterns() const { return m_injection_patterns; }
+    uint32_t injection_content_capture() const { return m_injection_content_capture; }
+    uint32_t injection_language_capture() const { return m_injection_language_capture; }
+
 private:
     friend class LanguageRegistry;
 
@@ -37,6 +51,11 @@ private:
     TSQuery* m_highlight_query = nullptr;
     Vector<String> m_capture_faces;
     void* m_grammar_handle = nullptr;
+
+    TSQuery* m_injection_query = nullptr;
+    Vector<InjectionPattern, MemoryDomain::Highlight> m_injection_patterns;
+    uint32_t m_injection_content_capture = UINT32_MAX;
+    uint32_t m_injection_language_capture = UINT32_MAX;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>
