@@ -62,7 +62,8 @@ public:
 
     ConstArrayView<InjectionLayer> injection_layers() const { return m_injection_layers; }
     void detect_injections(const Buffer& buffer);
-    const LanguageConfig* config() const { return m_config; }
+    const LanguageConfig* config() const;  // re-resolves from registry each call
+    const String& language_name() const { return m_language_name; }
 
 private:
     void full_parse(const Buffer& buffer);
@@ -71,7 +72,7 @@ private:
     TSTree* m_tree = nullptr;
     TSLanguage* m_language = nullptr;
     TSQuery* m_highlight_query = nullptr;  // not owned — owned by LanguageConfig
-    const LanguageConfig* m_config = nullptr;  // not owned
+    String m_language_name;                // used to re-resolve config from registry
     LineByteIndex m_byte_index;
     size_t m_timestamp = 0;
     Vector<InjectionLayer, MemoryDomain::Highlight> m_injection_layers;

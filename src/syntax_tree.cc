@@ -147,7 +147,7 @@ void SyntaxTree::full_parse(const Buffer& buffer)
 SyntaxTree::SyntaxTree(const Buffer& buffer, const LanguageConfig* config)
     : m_language(config->language()),
       m_highlight_query(config->highlight_query()),
-      m_config(config)
+      m_language_name(config->name())
 {
     m_parser = ts_parser_new();
     if (not m_parser)
@@ -157,6 +157,13 @@ SyntaxTree::SyntaxTree(const Buffer& buffer, const LanguageConfig* config)
         throw runtime_error("failed to set tree-sitter language");
 
     full_parse(buffer);
+}
+
+const LanguageConfig* SyntaxTree::config() const
+{
+    if (not LanguageRegistry::has_instance() or m_language_name.empty())
+        return nullptr;
+    return LanguageRegistry::instance().get(m_language_name);
 }
 
 SyntaxTree::~SyntaxTree()
@@ -172,7 +179,7 @@ SyntaxTree::SyntaxTree(SyntaxTree&& other) noexcept
       m_tree(other.m_tree),
       m_language(other.m_language),
       m_highlight_query(other.m_highlight_query),
-      m_config(other.m_config),
+      m_language_name(std::move(other.m_language_name)),
       m_byte_index(std::move(other.m_byte_index)),
       m_timestamp(other.m_timestamp),
       m_injection_layers(std::move(other.m_injection_layers))
@@ -194,7 +201,7 @@ SyntaxTree& SyntaxTree::operator=(SyntaxTree&& other) noexcept
         m_tree = other.m_tree;
         m_language = other.m_language;
         m_highlight_query = other.m_highlight_query;
-        m_config = other.m_config;
+        m_language_name = std::move(other.m_language_name);
         m_byte_index = std::move(other.m_byte_index);
         m_timestamp = other.m_timestamp;
         m_injection_layers = std::move(other.m_injection_layers);
@@ -271,7 +278,8 @@ static String node_text(TSNode node, const Buffer& buffer)
 
 void SyntaxTree::detect_injections(const Buffer& buffer)
 {
-    if (not m_config or not m_config->injection_query() or not m_tree)
+    const auto* cfg = config();
+    if (not cfg or not cfg->injection_query() or not m_tree)
         return;
 
     m_injection_layers.clear();
@@ -297,11 +305,11 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
         ts_query_cursor_set_match_limit(cursor, 256);
 
         TSNode root = ts_tree_root_node(m_tree);
-        ts_query_cursor_exec(cursor, m_config->injection_query(), root);
+        ts_query_cursor_exec(cursor, cfg->injection_query(), root);
 
-        const uint32_t content_capture = m_config->injection_content_capture();
-        const uint32_t language_capture = m_config->injection_language_capture();
-        const auto& patterns = m_config->injection_patterns();
+        const uint32_t content_capture = cfg->injection_content_capture();
+        const uint32_t language_capture = cfg->injection_language_capture();
+        const auto& patterns = cfg->injection_patterns();
 
         TSQueryMatch match;
         while (ts_query_cursor_next_match(cursor, &match))
@@ -389,9 +397,6 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
     for (auto& p : pending)
     {
         const auto* inj_config = LanguageRegistry::instance().get(p.language_name);
-        // Re-resolve m_config — get() may have reallocated the HashMap
-        if (m_config)
-            m_config = LanguageRegistry::instance().get(m_config->name());
         if (not inj_config or not inj_config->language())
             continue;
 

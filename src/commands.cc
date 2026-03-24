@@ -2852,9 +2852,13 @@ static void ensure_textobject_query(const Buffer& buffer, SyntaxTree& syntax_tre
 
     syntax_tree.update(buffer);
 
-    if (not syntax_tree.is_valid() or not syntax_tree.config() or
-        not syntax_tree.config()->textobject_query())
-        throw runtime_error("no textobject query for this buffer's language");
+    if (not syntax_tree.is_valid())
+        throw runtime_error("tree-sitter syntax tree is not valid");
+    if (not syntax_tree.config())
+        throw runtime_error("no tree-sitter config for this buffer");
+    if (not syntax_tree.config()->textobject_query())
+        throw runtime_error(format("no textobject query for '{}' — check runtime/queries/{}/textobjects.scm exists",
+            syntax_tree.config()->name(), syntax_tree.config()->name()));
 }
 
 static uint32_t find_capture_index(TSQuery* query, StringView capture_name)

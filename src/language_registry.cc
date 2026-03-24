@@ -320,14 +320,17 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             config.m_textobject_query = ts_query_new(lang, textobj_text.c_str(),
                                                       (uint32_t)(int)textobj_text.length(),
                                                       &error_offset, &error_type);
-            if (not config.m_textobject_query)
-                write_to_debug_buffer(format("tree-sitter: textobject query error in {}/textobjects.scm at offset {}",
-                                             name, error_offset));
+            if (config.m_textobject_query)
+                write_to_debug_buffer(format("tree-sitter: loaded textobjects for '{}' with {} captures",
+                                             name, ts_query_capture_count(config.m_textobject_query)));
+            else
+                write_to_debug_buffer(format("tree-sitter: textobject query error in {}/textobjects.scm at offset {} type {}",
+                                             name, error_offset, (int)error_type));
         }
     }
     catch (runtime_error&)
     {
-        // No textobjects.scm file — that is fine, not all languages have one
+        // No textobjects.scm file — that is fine
     }
 
     // Try to load indents.scm (optional)
