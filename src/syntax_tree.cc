@@ -165,34 +165,33 @@ void SyntaxTree::update(const Buffer& buffer)
         return;
     }
 
-    // Rebuild the byte index before computing edits, so that
-    // byte_offset calls in make_ts_input_edit use the old layout.
-    // We need the old byte index for computing edit positions,
-    // then rebuild after applying edits.
     auto changes = buffer.changes_since(m_timestamp);
 
-    for (auto& change : changes)
+    if (changes.size() == 1)
     {
-        // Rebuild byte index to reflect state before each edit,
-        // but tree-sitter edits are cumulative on the tree so we
-        // just need the byte index that was current before the parse.
-        auto edit = make_ts_input_edit(m_byte_index, change);
+        // Single change: m_byte_index is still valid for the pre-change state
+        auto edit = make_ts_input_edit(m_byte_index, changes[0]);
         ts_tree_edit(m_tree, &edit);
         m_byte_index.rebuild(buffer);
+
+        TSInput input{};
+        input.payload = const_cast<Buffer*>(&buffer);
+        input.read = ts_input_read;
+        input.encoding = TSInputEncodingUTF8;
+
+        TSTree* new_tree = ts_parser_parse(m_parser, m_tree, input);
+        if (new_tree)
+        {
+            ts_tree_delete(m_tree);
+            m_tree = new_tree;
+        }
     }
-
-    m_byte_index.rebuild(buffer);
-
-    TSInput input{};
-    input.payload = const_cast<Buffer*>(&buffer);
-    input.read = ts_input_read;
-    input.encoding = TSInputEncodingUTF8;
-
-    TSTree* new_tree = ts_parser_parse(m_parser, m_tree, input);
-    if (new_tree)
+    else
     {
-        ts_tree_delete(m_tree);
-        m_tree = new_tree;
+        // Multiple changes: byte index becomes stale after the first
+        // edit, so fall back to a full reparse for correctness.
+        full_parse(buffer);
+        return;
     }
 
     m_timestamp = buffer.timestamp();

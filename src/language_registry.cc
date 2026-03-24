@@ -20,42 +20,42 @@ String capture_to_face_name(StringView capture_name)
 
 LanguageConfig::~LanguageConfig()
 {
-    if (highlight_query)
-        ts_query_delete(highlight_query);
-    if (grammar_handle)
-        dlclose(grammar_handle);
+    if (m_highlight_query)
+        ts_query_delete(m_highlight_query);
+    if (m_grammar_handle)
+        dlclose(m_grammar_handle);
 }
 
 LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
-    : name(std::move(other.name)),
-      language(other.language),
-      highlight_query(other.highlight_query),
-      capture_faces(std::move(other.capture_faces)),
-      grammar_handle(other.grammar_handle)
+    : m_name(std::move(other.m_name)),
+      m_language(other.m_language),
+      m_highlight_query(other.m_highlight_query),
+      m_capture_faces(std::move(other.m_capture_faces)),
+      m_grammar_handle(other.m_grammar_handle)
 {
-    other.language = nullptr;
-    other.highlight_query = nullptr;
-    other.grammar_handle = nullptr;
+    other.m_language = nullptr;
+    other.m_highlight_query = nullptr;
+    other.m_grammar_handle = nullptr;
 }
 
 LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
 {
     if (this != &other)
     {
-        if (highlight_query)
-            ts_query_delete(highlight_query);
-        if (grammar_handle)
-            dlclose(grammar_handle);
+        if (m_highlight_query)
+            ts_query_delete(m_highlight_query);
+        if (m_grammar_handle)
+            dlclose(m_grammar_handle);
 
-        name = std::move(other.name);
-        language = other.language;
-        highlight_query = other.highlight_query;
-        capture_faces = std::move(other.capture_faces);
-        grammar_handle = other.grammar_handle;
+        m_name = std::move(other.m_name);
+        m_language = other.m_language;
+        m_highlight_query = other.m_highlight_query;
+        m_capture_faces = std::move(other.m_capture_faces);
+        m_grammar_handle = other.m_grammar_handle;
 
-        other.language = nullptr;
-        other.highlight_query = nullptr;
-        other.grammar_handle = nullptr;
+        other.m_language = nullptr;
+        other.m_highlight_query = nullptr;
+        other.m_grammar_handle = nullptr;
     }
     return *this;
 }
@@ -83,7 +83,7 @@ const LanguageConfig* LanguageRegistry::get(StringView name)
     auto it = m_languages.find(name);
     if (it != m_languages.end())
     {
-        if (it->value.language == nullptr)
+        if (it->value.m_language == nullptr)
             return nullptr;
         return &it->value;
     }
@@ -171,11 +171,11 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
 
     // Store the config
     LanguageConfig config;
-    config.name = name.str();
-    config.language = lang;
-    config.highlight_query = query;
-    config.capture_faces = std::move(faces);
-    config.grammar_handle = handle;
+    config.m_name = name.str();
+    config.m_language = lang;
+    config.m_highlight_query = query;
+    config.m_capture_faces = std::move(faces);
+    config.m_grammar_handle = handle;
 
     auto& stored = (m_languages[name.str()] = std::move(config));
 

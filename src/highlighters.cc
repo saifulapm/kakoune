@@ -2,13 +2,14 @@
 
 #include "assert.hh"
 #include "buffer_utils.hh"
-#include "debug.hh"
 #include "changes.hh"
 #include "command_manager.hh"
 #include "context.hh"
+#include "debug.hh"
 #include "display_buffer.hh"
 #include "face_registry.hh"
 #include "highlighter_group.hh"
+#include "language_registry.hh"
 #include "line_modification.hh"
 #include "option_manager.hh"
 #include "option_types.hh"
@@ -17,13 +18,11 @@
 #include "regex.hh"
 #include "register_manager.hh"
 #include "string.hh"
+#include "syntax_tree.hh"
+#include "unicode.hh"
 #include "utf8.hh"
 #include "utf8_iterator.hh"
 #include "window.hh"
-#include "unicode.hh"
-
-#include "language_registry.hh"
-#include "syntax_tree.hh"
 
 #include <cstdio>
 #include <limits>
@@ -2434,7 +2433,14 @@ const HighlighterDesc tree_sitter_desc = {
 struct TreeSitterHighlighter : Highlighter
 {
     TreeSitterHighlighter()
-        : Highlighter{HighlightPass::Colorize} {}
+        : Highlighter{HighlightPass::Colorize},
+          m_cursor(ts_query_cursor_new()) {}
+
+    ~TreeSitterHighlighter() override
+    {
+        if (m_cursor)
+            ts_query_cursor_delete(m_cursor);
+    }
 
     static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
     {
@@ -2442,24 +2448,26 @@ struct TreeSitterHighlighter : Highlighter
     }
 
 private:
+    mutable TSQueryCursor* m_cursor;
+
     void do_highlight(HighlightContext context, DisplayBuffer& display_buffer, BufferRange range) override
     {
         const auto& buffer = context.context.buffer();
 
+        auto filetype = context.context.options()["filetype"].get<String>();
+        if (filetype.empty())
+            return;
+
+        auto lang_name = LanguageRegistry::filetype_to_language(filetype);
+        const auto* config = LanguageRegistry::instance().get(lang_name);
+        if (not config or not config->language() or not config->highlight_query())
+            return;
+
         if (not has_syntax_tree(buffer))
         {
-            auto filetype = context.context.options()["filetype"].get<String>();
-            if (filetype.empty())
-                return;
-
-            auto lang_name = LanguageRegistry::filetype_to_language(filetype);
-            const auto* config = LanguageRegistry::instance().get(lang_name);
-            if (not config or not config->language or not config->highlight_query)
-                return;
-
             try
             {
-                create_syntax_tree(buffer, config->language, config->highlight_query);
+                create_syntax_tree(buffer, config->language(), config->highlight_query());
             }
             catch (runtime_error&)
             {
@@ -2473,41 +2481,28 @@ private:
         if (not syntax_tree.is_valid())
             return;
 
-        TSQueryCursor* cursor = ts_query_cursor_new();
-        if (not cursor)
+        if (not m_cursor)
             return;
-
-        struct CursorGuard {
-            TSQueryCursor* c;
-            ~CursorGuard() { ts_query_cursor_delete(c); }
-        } cursor_guard{cursor};
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
         uint32_t start_byte = byte_index.byte_offset(display_range.begin);
         uint32_t end_byte = byte_index.byte_offset(display_range.end);
-        ts_query_cursor_set_byte_range(cursor, start_byte, end_byte);
+        ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
 
         TSNode root = ts_tree_root_node(syntax_tree.tree());
-        ts_query_cursor_exec(cursor, syntax_tree.highlight_query(), root);
-
-        // Look up the config again for capture_faces
-        auto filetype = context.context.options()["filetype"].get<String>();
-        auto lang_name = LanguageRegistry::filetype_to_language(filetype);
-        const auto* config = LanguageRegistry::instance().get(lang_name);
-        if (not config)
-            return;
+        ts_query_cursor_exec(m_cursor, syntax_tree.highlight_query(), root);
 
         TSQueryMatch match;
         uint32_t capture_index;
-        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
+        while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
         {
             const TSQueryCapture& capture = match.captures[capture_index];
 
-            if (capture.index >= config->capture_faces.size())
+            if (capture.index >= config->capture_faces().size())
                 continue;
 
-            const auto& face_name = config->capture_faces[capture.index];
+            const auto& face_name = config->capture_faces()[capture.index];
 
             TSPoint start_point = ts_node_start_point(capture.node);
             TSPoint end_point = ts_node_end_point(capture.node);

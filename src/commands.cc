@@ -32,10 +32,10 @@
 #include "remote.hh"
 #include "shell_manager.hh"
 #include "string.hh"
+#include "language_registry.hh"
+#include "syntax_tree.hh"
 #include "user_interface.hh"
 #include "window.hh"
-#include "syntax_tree.hh"
-#include "language_registry.hh"
 
 #include <utility>
 
@@ -2819,7 +2819,7 @@ const CommandDesc tree_sitter_enable_cmd = {
             throw runtime_error(format("no tree-sitter grammar for '{}'", language));
 
         if (not has_syntax_tree(buffer))
-            create_syntax_tree(buffer, config->language, config->highlight_query);
+            create_syntax_tree(buffer, config->language(), config->highlight_query());
     }
 };
 

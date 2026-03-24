@@ -12,14 +12,9 @@ namespace Kakoune
 
 String capture_to_face_name(StringView capture_name);
 
-struct LanguageConfig
+class LanguageConfig
 {
-    String name;
-    TSLanguage* language = nullptr;
-    TSQuery* highlight_query = nullptr;
-    Vector<String> capture_faces;
-    void* grammar_handle = nullptr;
-
+public:
     LanguageConfig() = default;
     ~LanguageConfig();
 
@@ -28,6 +23,20 @@ struct LanguageConfig
 
     LanguageConfig(LanguageConfig&& other) noexcept;
     LanguageConfig& operator=(LanguageConfig&& other) noexcept;
+
+    const String& name() const { return m_name; }
+    TSLanguage* language() const { return m_language; }
+    TSQuery* highlight_query() const { return m_highlight_query; }
+    const Vector<String>& capture_faces() const { return m_capture_faces; }
+
+private:
+    friend class LanguageRegistry;
+
+    String m_name;
+    TSLanguage* m_language = nullptr;
+    TSQuery* m_highlight_query = nullptr;
+    Vector<String> m_capture_faces;
+    void* m_grammar_handle = nullptr;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>
