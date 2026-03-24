@@ -1,0 +1,3 @@
+source "%val{runtime}/rc/tree-sitter.kak"
+set-option buffer filetype c
+tree-sitter-enable

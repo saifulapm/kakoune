@@ -67,3 +67,8 @@ map global tree A ': tree-select parameter inside<ret>' -docstring 'parameter (i
 map global tree o ': tree-select comment around<ret>' -docstring 'comment'
 map global tree n ': tree-select-next function<ret>' -docstring 'next function'
 map global tree p ': tree-select-prev function<ret>' -docstring 'prev function'
+map global tree s ': tree-select-node<ret>' -docstring 'select node'
+map global tree P ': tree-parent<ret>' -docstring 'parent'
+map global tree i ': tree-first-child<ret>' -docstring 'first child'
+map global tree ] ': tree-next-sibling<ret>' -docstring 'next sibling'
+map global tree [ ': tree-prev-sibling<ret>' -docstring 'prev sibling'
