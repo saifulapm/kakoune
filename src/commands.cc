@@ -4186,55 +4186,6 @@ const CommandDesc tree_indent_cmd = {
         if (not config or not config->indent_query())
             throw runtime_error("no indent query for this buffer's language");
 
-        TSQuery* query = config->indent_query();
-
-        // Find @indent and @outdent capture indices
-        uint32_t indent_capture = find_capture_index(query, "indent");
-        uint32_t outdent_capture = find_capture_index(query, "outdent");
-
-        // Execute indent query on full tree
-        QueryCursorGuard cursor;
-        ts_query_cursor_set_match_limit(cursor, 256);
-        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
-
-        const auto& ind_preds = config->indent_predicates();
-
-        // Build per-line indent adjustments
-        auto line_count = (int)buffer.line_count();
-        Vector<int> indent_delta(line_count, 0);
-
-        TSQueryMatch match;
-        uint32_t capture_index;
-        while (ts_query_cursor_next_capture(cursor, &match, &capture_index))
-        {
-            if (match.pattern_index < (uint32_t)ind_preds.size()
-                and not ind_preds[(int)match.pattern_index].empty()
-                and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
-            {
-                ts_query_cursor_remove_match(cursor, match.id);
-                continue;
-            }
-
-            auto& cap = match.captures[capture_index];
-            TSPoint start = ts_node_start_point(cap.node);
-            TSPoint end = ts_node_end_point(cap.node);
-
-            if (cap.index == indent_capture)
-            {
-                // Lines inside this node (after the opening line) get +1 indent
-                for (uint32_t line = start.row + 1;
-                     line <= end.row and (int)line < line_count; ++line)
-                    indent_delta[(int)line]++;
-            }
-            else if (cap.index == outdent_capture)
-            {
-                // The line with the outdent token gets -1
-                if ((int)start.row < line_count)
-                    indent_delta[(int)start.row]--;
-            }
-        }
-
-        // Apply indentation to selected lines
         ColumnCount tabstop = context.options()["tabstop"].get<int>();
         ColumnCount indent_width = context.options()["indentwidth"].get<int>();
         if (indent_width == 0)
@@ -4253,18 +4204,17 @@ const CommandDesc tree_indent_cmd = {
             last_line = sel.max().line;
         }
 
-        // Apply edits bottom-to-top so earlier replacements don't shift
-        // the byte coordinates of later lines.
+        // Apply edits bottom-to-top
         ScopedEdition edition(context);
         ScopedSelectionEdition selection_edition{context};
 
         for (int i = (int)lines_to_indent.size() - 1; i >= 0; --i)
         {
             auto line = lines_to_indent[i];
-            int target_level = std::max(0, indent_delta[(int)line]);
-            String indent_str(' ', CharCount{target_level * (int)indent_width});
+            int level = compute_indent_for_line(syntax_tree, buffer, line, false);
+            int target_spaces = std::max(0, level) * (int)indent_width;
+            String indent_str(' ', CharCount{target_spaces});
 
-            // Find end of existing leading whitespace
             auto content = buffer[line];
             ByteCount ws_end = 0;
             while (ws_end < content.length() and
@@ -4294,97 +4244,22 @@ const CommandDesc tree_indent_newline_cmd = {
         if (not config or not config->indent_query())
             throw runtime_error("no indent query for this buffer's language");
 
-        TSQuery* query = config->indent_query();
-        uint32_t indent_capture = find_capture_index(query, "indent");
-        uint32_t outdent_capture = find_capture_index(query, "outdent");
-
         auto cursor = context.selections().main().cursor();
         auto line = cursor.line;
 
-        // Nothing to indent on the first line
         if (line == 0)
             return;
-
-        auto prev_line = line - 1;
-
-        // Copy previous line's leading whitespace as baseline
-        auto prev_content = buffer[prev_line];
-        ByteCount prev_ws_end = 0;
-        int baseline_spaces = 0;
-        while (prev_ws_end < prev_content.length())
-        {
-            char c = prev_content[(int)prev_ws_end];
-            if (c == ' ')
-            {
-                baseline_spaces++;
-                prev_ws_end++;
-            }
-            else if (c == '\t')
-            {
-                ColumnCount tabstop = context.options()["tabstop"].get<int>();
-                baseline_spaces += (int)tabstop;
-                prev_ws_end++;
-            }
-            else
-                break;
-        }
 
         ColumnCount indent_width = context.options()["indentwidth"].get<int>();
         ColumnCount tabstop = context.options()["tabstop"].get<int>();
         if (indent_width == 0)
             indent_width = tabstop;
 
-        // Run indent query over the tree and compute delta for cursor line
-        QueryCursorGuard qcursor;
-        ts_query_cursor_set_match_limit(qcursor, 256);
-        // Restrict query to relevant range (previous line through current line)
-        uint32_t prev_row = (uint32_t)(int)prev_line;
-        uint32_t cur_row = (uint32_t)(int)line;
-        ts_query_cursor_set_point_range(qcursor,
-            {prev_row, 0},
-            {cur_row + 1, 0});
-        ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
-
-        const auto& ind_preds = config->indent_predicates();
-
-        int indent_delta = 0;
-        TSQueryMatch match;
-        uint32_t cap_index;
-        while (ts_query_cursor_next_capture(qcursor, &match, &cap_index))
-        {
-            if (match.pattern_index < (uint32_t)ind_preds.size()
-                and not ind_preds[(int)match.pattern_index].empty()
-                and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
-            {
-                ts_query_cursor_remove_match(qcursor, match.id);
-                continue;
-            }
-
-            auto& cap = match.captures[cap_index];
-            TSPoint start = ts_node_start_point(cap.node);
-            TSPoint end = ts_node_end_point(cap.node);
-
-            if (cap.index == indent_capture)
-            {
-                // If this @indent node starts on or before prev_line
-                // and ends on or after current line, the current line
-                // is inside the indent scope -> add one level
-                if (start.row <= prev_row and end.row >= cur_row)
-                    indent_delta++;
-            }
-            else if (cap.index == outdent_capture)
-            {
-                // If an @outdent node starts on the current line,
-                // remove one indent level
-                if (start.row == cur_row)
-                    indent_delta--;
-            }
-        }
-
-        int target_spaces = std::max(0, baseline_spaces + indent_delta * (int)indent_width);
+        int level = compute_indent_for_line(syntax_tree, buffer, line, true);
+        int target_spaces = std::max(0, level) * (int)indent_width;
         String indent_str(' ', CharCount{target_spaces});
 
-        // Replace current line's leading whitespace with computed indent
+        // Replace current line's leading whitespace
         auto cur_content = buffer[line];
         ByteCount cur_ws_end = 0;
         while (cur_ws_end < cur_content.length() and
