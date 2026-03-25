@@ -1,5 +1,6 @@
 #include "syntax_tree.hh"
 
+#include "changes.hh"
 #include "debug.hh"
 #include "exception.hh"
 #include "format.hh"
@@ -195,6 +196,19 @@ void SyntaxTree::update(const Buffer& buffer)
     }
 
     auto changes = buffer.changes_since(m_timestamp);
+
+    // Undo/redo produces backward-sorted changes. Our incremental edit
+    // logic uses m_byte_index which is only valid for forward-sorted
+    // (normal editing) changes. If we detect any backward-sorted changes,
+    // fall back to full reparse for correctness.
+    {
+        auto forward_end = forward_sorted_until(changes.begin(), changes.end());
+        if (forward_end != changes.end())
+        {
+            full_parse(buffer);
+            return;
+        }
+    }
 
     // Apply edits in REVERSE order (like Helix/tree-house). When applied
     // in reverse, each edit only affects byte positions to its LEFT, which
