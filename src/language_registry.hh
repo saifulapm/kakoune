@@ -26,7 +26,8 @@ struct InjectionPattern
     bool include_children = false;  // from #set! injection.include-children
 };
 
-enum class PredicateType { Eq, NotEq, Match, NotMatch, AnyOf, NotAnyOf };
+enum class PredicateType { Eq, NotEq, Match, NotMatch, AnyOf, NotAnyOf,
+                           NotKindEq, SameLine, NotSameLine, OneLine, NotOneLine };
 
 struct QueryPredicate
 {

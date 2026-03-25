@@ -271,6 +271,43 @@ static void parse_single_predicate(const TSQuery* query,
         }
         out.push_back(std::move(pred));
     }
+    else if (name == "not-kind-eq?" and count >= 3)
+    {
+        auto cap = get_capture(steps[1]);
+        auto kind = get_string(steps[2]);
+        if (not cap or not kind)
+            return;
+
+        QueryPredicate pred;
+        pred.type = PredicateType::NotKindEq;
+        pred.capture_id = *cap;
+        pred.value = std::move(*kind);
+        out.push_back(std::move(pred));
+    }
+    else if ((name == "same-line?" or name == "not-same-line?") and count >= 3)
+    {
+        auto cap1 = get_capture(steps[1]);
+        auto cap2 = get_capture(steps[2]);
+        if (not cap1 or not cap2)
+            return;
+
+        QueryPredicate pred;
+        pred.type = (name == "same-line?") ? PredicateType::SameLine : PredicateType::NotSameLine;
+        pred.capture_id = *cap1;
+        pred.capture_id2 = *cap2;
+        out.push_back(std::move(pred));
+    }
+    else if ((name == "one-line?" or name == "not-one-line?") and count >= 2)
+    {
+        auto cap = get_capture(steps[1]);
+        if (not cap)
+            return;
+
+        QueryPredicate pred;
+        pred.type = (name == "one-line?") ? PredicateType::OneLine : PredicateType::NotOneLine;
+        pred.capture_id = *cap;
+        out.push_back(std::move(pred));
+    }
     else if (name != "set!")
     {
         String name_s{name};
@@ -420,6 +457,51 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
                 if (text == v)
                     return false;
             }
+            break;
+        }
+
+        case PredicateType::NotKindEq:
+        {
+            const char* kind = ts_node_type(node);
+            if (kind and StringView{kind} == pred.value)
+                return false;
+            break;
+        }
+
+        case PredicateType::SameLine:
+        case PredicateType::NotSameLine:
+        {
+            // Find second capture node
+            bool found2 = false;
+            TSNode node2 = {};
+            for (uint16_t c = 0; c < match.capture_count; ++c)
+            {
+                if (match.captures[c].index == *pred.capture_id2)
+                {
+                    node2 = match.captures[c].node;
+                    found2 = true;
+                    break;
+                }
+            }
+            if (not found2)
+                return false;  // missing capture -> conservative fail
+
+            bool same = ts_node_start_point(node).row == ts_node_start_point(node2).row;
+            if (pred.type == PredicateType::SameLine and not same)
+                return false;
+            if (pred.type == PredicateType::NotSameLine and same)
+                return false;
+            break;
+        }
+
+        case PredicateType::OneLine:
+        case PredicateType::NotOneLine:
+        {
+            bool one = ts_node_start_point(node).row == ts_node_end_point(node).row;
+            if (pred.type == PredicateType::OneLine and not one)
+                return false;
+            if (pred.type == PredicateType::NotOneLine and one)
+                return false;
             break;
         }
         }
