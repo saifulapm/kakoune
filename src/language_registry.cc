@@ -184,7 +184,8 @@ static String node_text_for_predicate(TSNode node, const Buffer& buffer)
 static void parse_single_predicate(const TSQuery* query,
                                    const TSQueryPredicateStep* steps,
                                    uint32_t count,
-                                   Vector<QueryPredicate>& out)
+                                   Vector<QueryPredicate>& out,
+                                   HashSet<String>& logged_unknowns)
 {
     if (count < 2 or steps[0].type != TSQueryPredicateStepTypeString)
         return;
@@ -272,7 +273,12 @@ static void parse_single_predicate(const TSQuery* query,
     }
     else if (name != "set!")
     {
-        write_to_debug_buffer(format("tree-sitter: unknown predicate '{}', skipping", name));
+        String name_s{name};
+        if (logged_unknowns.find(name_s) == logged_unknowns.end())
+        {
+            logged_unknowns.insert(name_s);
+            write_to_debug_buffer(format("tree-sitter: unknown predicate '{}', skipping", name));
+        }
     }
 }
 
@@ -282,6 +288,7 @@ PatternPredicates parse_query_predicates(const TSQuery* query)
     if (not query)
         return result;
 
+    HashSet<String> logged_unknowns;
     uint32_t pattern_count = ts_query_pattern_count(query);
     result.resize((int)pattern_count);
 
@@ -299,7 +306,8 @@ PatternPredicates parse_query_predicates(const TSQuery* query)
             {
                 if (s > pred_start)
                     parse_single_predicate(query, steps + pred_start,
-                                           s - pred_start, result[(int)p]);
+                                           s - pred_start, result[(int)p],
+                                           logged_unknowns);
                 pred_start = s + 1;
             }
         }
