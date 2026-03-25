@@ -29,6 +29,8 @@ struct InjectionPattern
 enum class PredicateType { Eq, NotEq, Match, NotMatch, AnyOf, NotAnyOf,
                            NotKindEq, SameLine, NotSameLine, OneLine, NotOneLine };
 
+enum class IndentScope { All, Tail };
+
 struct QueryPredicate
 {
     PredicateType type;
@@ -78,6 +80,8 @@ public:
     const PatternPredicates& indent_predicates() const { return m_indent_predicates; }
     const PatternPredicates& locals_predicates() const { return m_locals_predicates; }
 
+    const Vector<Optional<IndentScope>>& indent_scopes() const { return m_indent_scopes; }
+
 private:
     friend class LanguageRegistry;
 
@@ -101,6 +105,8 @@ private:
     PatternPredicates m_textobject_predicates;
     PatternPredicates m_indent_predicates;
     PatternPredicates m_locals_predicates;
+
+    Vector<Optional<IndentScope>> m_indent_scopes;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>

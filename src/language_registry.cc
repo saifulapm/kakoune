@@ -53,7 +53,8 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_injection_predicates(std::move(other.m_injection_predicates)),
       m_textobject_predicates(std::move(other.m_textobject_predicates)),
       m_indent_predicates(std::move(other.m_indent_predicates)),
-      m_locals_predicates(std::move(other.m_locals_predicates))
+      m_locals_predicates(std::move(other.m_locals_predicates)),
+      m_indent_scopes(std::move(other.m_indent_scopes))
 {
     other.m_language = nullptr;
     other.m_highlight_query = nullptr;
@@ -100,6 +101,7 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_textobject_predicates = std::move(other.m_textobject_predicates);
         m_indent_predicates = std::move(other.m_indent_predicates);
         m_locals_predicates = std::move(other.m_locals_predicates);
+        m_indent_scopes = std::move(other.m_indent_scopes);
 
         other.m_language = nullptr;
         other.m_highlight_query = nullptr;
@@ -759,7 +761,56 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                                                   (uint32_t)(int)indent_text.length(),
                                                   &error_offset, &error_type);
             if (config.m_indent_query)
+            {
                 config.m_indent_predicates = parse_query_predicates(config.m_indent_query);
+
+                // Parse #set! "scope" for indent patterns
+                uint32_t pattern_count = ts_query_pattern_count(config.m_indent_query);
+                config.m_indent_scopes.resize((int)pattern_count);  // default: empty Optional (no override)
+
+                for (uint32_t p = 0; p < pattern_count; ++p)
+                {
+                    uint32_t step_count = 0;
+                    const TSQueryPredicateStep* steps =
+                        ts_query_predicates_for_pattern(config.m_indent_query, p, &step_count);
+
+                    for (uint32_t s = 0; s < step_count; ++s)
+                    {
+                        if (steps[s].type != TSQueryPredicateStepTypeString)
+                            continue;
+
+                        uint32_t pred_len = 0;
+                        const char* pred_name = ts_query_string_value_for_id(
+                            config.m_indent_query, steps[s].value_id, &pred_len);
+                        StringView pred{pred_name, (ByteCount)pred_len};
+
+                        if (pred == "set!" and s + 2 < step_count
+                            and steps[s+1].type == TSQueryPredicateStepTypeString)
+                        {
+                            uint32_t key_len = 0;
+                            const char* key_str = ts_query_string_value_for_id(
+                                config.m_indent_query, steps[s+1].value_id, &key_len);
+                            StringView key{key_str, (ByteCount)key_len};
+
+                            if (key == "scope" and s + 2 < step_count
+                                and steps[s+2].type == TSQueryPredicateStepTypeString)
+                            {
+                                uint32_t val_len = 0;
+                                const char* val_str = ts_query_string_value_for_id(
+                                    config.m_indent_query, steps[s+2].value_id, &val_len);
+                                StringView val{val_str, (ByteCount)val_len};
+
+                                if (val == "all")
+                                    config.m_indent_scopes[(int)p] = IndentScope::All;
+                                else if (val == "tail")
+                                    config.m_indent_scopes[(int)p] = IndentScope::Tail;
+
+                                s += 2;
+                            }
+                        }
+                    }
+                }
+            }
             else
                 write_to_debug_buffer(format("tree-sitter: indent query error in {}/indents.scm at offset {}",
                                              name, error_offset));
