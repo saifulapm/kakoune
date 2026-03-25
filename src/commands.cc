@@ -3902,6 +3902,272 @@ const CommandDesc tree_update_context_cmd = {
     }
 };
 
+enum class IndentCaptureType { Indent, IndentAlways, Outdent, OutdentAlways };
+
+struct IndentAccum
+{
+    int indent = 0;
+    int indent_always = 0;
+    int outdent = 0;
+    int outdent_always = 0;
+
+    void add_capture(IndentCaptureType type)
+    {
+        switch (type)
+        {
+        case IndentCaptureType::Indent:
+            if (indent_always == 0)
+                indent = 1;
+            break;
+        case IndentCaptureType::IndentAlways:
+            indent_always++;
+            indent = 0;
+            break;
+        case IndentCaptureType::Outdent:
+            if (outdent_always == 0)
+                outdent = 1;
+            break;
+        case IndentCaptureType::OutdentAlways:
+            outdent_always++;
+            outdent = 0;
+            break;
+        }
+    }
+
+    void add_line(const IndentAccum& other)
+    {
+        indent += other.indent;
+        indent_always += other.indent_always;
+        outdent += other.outdent;
+        outdent_always += other.outdent_always;
+    }
+
+    int net() const
+    {
+        return (indent + indent_always) - (outdent + outdent_always);
+    }
+};
+
+// Get effective start line, adjusted for new-line insertion
+static uint32_t get_node_start_line(TSNode node, Optional<uint32_t> new_line_byte_pos)
+{
+    uint32_t row = ts_node_start_point(node).row;
+    if (new_line_byte_pos and ts_node_start_byte(node) >= *new_line_byte_pos)
+        row++;
+    return row;
+}
+
+// Check if only whitespace appears before node on its line.
+// Matches Helix's is_first_in_line (indent.rs:295-306).
+static bool is_first_in_line(TSNode node, const Buffer& buffer,
+                             Optional<uint32_t> new_line_byte_pos)
+{
+    uint32_t row = ts_node_start_point(node).row;
+    if (row >= (uint32_t)(int)buffer.line_count())
+        return true;
+
+    StringView line_content = buffer[LineCount{(int)row}];
+    uint32_t node_col = ts_node_start_point(node).column;
+
+    // If new line will be inserted before this node on the same line,
+    // only check whitespace from the new-line position to the node.
+    uint32_t check_from_col = 0;
+    if (new_line_byte_pos)
+    {
+        uint32_t node_start_byte = ts_node_start_byte(node);
+        if (node_start_byte >= node_col)  // node_start_byte - node_col = line start byte
+        {
+            uint32_t line_start_byte = node_start_byte - node_col;
+            if (line_start_byte < *new_line_byte_pos
+                and *new_line_byte_pos <= node_start_byte)
+            {
+                check_from_col = *new_line_byte_pos - line_start_byte;
+            }
+        }
+    }
+
+    for (uint32_t col = check_from_col; col < node_col
+         and col < (uint32_t)(int)line_content.length(); ++col)
+    {
+        char c = line_content[(int)col];
+        if (c != ' ' and c != '\t')
+            return false;
+    }
+    return true;
+}
+
+static int compute_indent_for_line(const SyntaxTree& syntax_tree,
+                                   const Buffer& buffer,
+                                   LineCount target_line,
+                                   bool new_line)
+{
+    auto* config = syntax_tree.config();
+    if (not config or not config->indent_query())
+        return 0;
+
+    TSQuery* query = config->indent_query();
+    const auto& ind_preds = config->indent_predicates();
+    const auto& ind_scopes = config->indent_scopes();
+
+    // Find capture indices
+    uint32_t indent_cap = find_capture_index(query, "indent");
+    uint32_t indent_always_cap = find_capture_index(query, "indent.always");
+    uint32_t outdent_cap = find_capture_index(query, "outdent");
+    uint32_t outdent_always_cap = find_capture_index(query, "outdent.always");
+
+    // Compute byte position and new_line_byte_pos
+    auto& byte_index = syntax_tree.byte_index();
+    uint32_t byte_pos = byte_index.byte_offset({target_line, ByteCount{0}});
+    Optional<uint32_t> new_line_byte_pos;
+    if (new_line)
+        new_line_byte_pos = byte_pos;
+
+    // Step 1: Find deepest node at position
+    TSNode root = ts_tree_root_node(syntax_tree.tree());
+    TSNode node = ts_node_descendant_for_byte_range(root, byte_pos, byte_pos);
+    if (ts_node_is_null(node))
+        return 0;
+
+    // Step 2: Collect indent captures into HashMap keyed by node ID
+    struct IndentCapture
+    {
+        IndentCaptureType type;
+        IndentScope scope;
+    };
+    HashMap<uintptr_t, Vector<IndentCapture>> indent_captures;
+
+    QueryCursorGuard cursor;
+    ts_query_cursor_set_match_limit(cursor, 256);
+    ts_query_cursor_exec(cursor, query, root);
+
+    TSQueryMatch match;
+    while (ts_query_cursor_next_match(cursor, &match))
+    {
+        // Filter by predicates
+        if (match.pattern_index < (uint32_t)ind_preds.size()
+            and not ind_preds[(int)match.pattern_index].empty()
+            and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
+            continue;
+
+        for (uint16_t c = 0; c < match.capture_count; ++c)
+        {
+            auto& cap = match.captures[c];
+            IndentCaptureType cap_type;
+            IndentScope default_scope;
+
+            if (cap.index == indent_cap)
+            {
+                cap_type = IndentCaptureType::Indent;
+                default_scope = IndentScope::Tail;
+            }
+            else if (cap.index == indent_always_cap)
+            {
+                cap_type = IndentCaptureType::IndentAlways;
+                default_scope = IndentScope::Tail;
+            }
+            else if (cap.index == outdent_cap)
+            {
+                cap_type = IndentCaptureType::Outdent;
+                default_scope = IndentScope::All;
+            }
+            else if (cap.index == outdent_always_cap)
+            {
+                cap_type = IndentCaptureType::OutdentAlways;
+                default_scope = IndentScope::All;
+            }
+            else
+                continue;  // unknown capture, skip
+
+            // Determine scope: pattern override (from #set! "scope") or capture-type default
+            IndentScope scope = default_scope;
+            if (match.pattern_index < (uint32_t)ind_scopes.size()
+                and ind_scopes[(int)match.pattern_index])
+            {
+                scope = *ind_scopes[(int)match.pattern_index];
+            }
+
+            uintptr_t node_id = (uintptr_t)cap.node.id;
+            indent_captures[node_id].push_back({cap_type, scope});
+        }
+    }
+
+    // Step 3: Walk up parents
+    IndentAccum result;
+    IndentAccum indent_for_line;
+    IndentAccum indent_for_line_below;
+
+    while (true)
+    {
+        bool is_first = is_first_in_line(node, buffer, new_line_byte_pos);
+
+        // Apply indent captures for this node
+        auto it = indent_captures.find((uintptr_t)node.id);
+        if (it != indent_captures.end())
+        {
+            for (auto& def : it->value)
+            {
+                switch (def.scope)
+                {
+                case IndentScope::All:
+                    if (is_first)
+                        indent_for_line.add_capture(def.type);
+                    else
+                        indent_for_line_below.add_capture(def.type);
+                    break;
+                case IndentScope::Tail:
+                    indent_for_line_below.add_capture(def.type);
+                    break;
+                }
+            }
+            indent_captures.remove(it->key);
+        }
+
+        TSNode parent = ts_node_parent(node);
+        if (ts_node_is_null(parent))
+        {
+            // Root reached — finalize.
+            // Intentionally use raw row (no new_line adjustment), matching Helix indent.rs:987
+            uint32_t node_start_line = ts_node_start_point(node).row;
+            if (node_start_line < (uint32_t)(int)target_line
+                or (new_line and node_start_line == (uint32_t)(int)target_line
+                    and ts_node_start_byte(node) < byte_pos))
+            {
+                result.add_line(indent_for_line_below);
+            }
+            result.add_line(indent_for_line);
+            break;
+        }
+
+        uint32_t node_line = get_node_start_line(node, new_line_byte_pos);
+        uint32_t parent_line = get_node_start_line(parent, new_line_byte_pos);
+
+        if (node_line != parent_line)
+        {
+            // (a) Only add indent_for_line_below if node is before target
+            uint32_t effective_target = (uint32_t)(int)target_line + (new_line ? 1 : 0);
+            if (node_line < effective_target)
+                result.add_line(indent_for_line_below);
+
+            // (b) Adjacent lines: shift down
+            if (node_line == parent_line + 1)
+            {
+                indent_for_line_below = indent_for_line;
+            }
+            else
+            {
+                // (c) Gap: flush indent_for_line too
+                result.add_line(indent_for_line);
+                indent_for_line_below = {};
+            }
+            indent_for_line = {};
+        }
+
+        node = parent;
+    }
+
+    return result.net();
+}
+
 const CommandDesc tree_indent_cmd = {
     "tree-indent",
     nullptr,
