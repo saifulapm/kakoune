@@ -1,0 +1,60 @@
+# --------------------------------
+# Treesitter Filetypes
+# --------------------------------
+# hook global BufCreate .*[.](a(scii)?doc|asc) %{ set-option buffer filetype asciidoc } 
+hook global BufCreate .*[.](astro) %{ set-option buffer filetype astro }
+hook global BufCreate .*\.((z|ba|c|k|mk)?(sh(rc|_profile|env)?|profile)) %{ set-option buffer filetype bash }
+hook global BufCreate .*\.(cc|cpp|cxx|C|hh|hpp|hxx|H)$ %{ set-option buffer filetype cpp }
+hook global BufCreate .*[.](css) %{ set-option buffer filetype css }
+hook global BufCreate .*[.](csv) %{ set-option buffer filetype csv }
+hook global BufCreate .*[.](dart) %{ set-option buffer filetype dart }
+hook global BufCreate .*[.](diff|patch) %{ set-option buffer filetype diff }
+hook global BufCreate .*[.](fish) %{ set-option buffer filetype fish }
+hook global BufCreate .*(ghostty/config) %{ set-option buffer filetype ghostty }
+hook global BufCreate .*(\.git(config|modules)|git/config) %{ set-option buffer filetype git-config }
+hook global BufCreate .*git-rebase-todo %{ set-option buffer filetype git-rebase }
+hook global BufCreate .*[.](gitattributes) %{ set-option buffer filetype gitattributes }
+hook global BufCreate .*(COMMIT_EDITMSG|MERGE_MSG) %{ set-option buffer filetype git-commit }
+hook global BufCreate .*/NOTES_EDITMSG %{ set-option buffer filetype git-notes }
+hook global BufCreate .*\.gitignore %{ set-option buffer filetype gitignore }
+hook global BufCreate '\*git_blame\*' %{ set buffer filetype git_blame }
+hook global BufCreate .*[.](go) %{ set-option buffer filetype go }
+hook global BufCreate .*[.](graphqls?) %{ set-option buffer filetype graphql }
+hook global BufCreate .*[.](html) %{ set-option buffer filetype html }
+hook global BufCreate .*[.](hurl) %{ set-option buffer filetype hurl }
+hook global BufCreate .*[.](ini) %{ set-option buffer filetype ini }
+hook global BufCreate .*[.][cm]?(js)x? %{ set-option buffer filetype javascript }
+hook global BufCreate .*[.](json) %{ set-option buffer filetype json }
+hook global BufCreate .*[.](jsonc) %{ set-option buffer filetype jsonc }
+hook global BufCreate .*[.](kdl) %{ set-option buffer filetype kdl }
+hook global BufCreate .*[.](log) %{ set-option buffer filetype log }
+hook global BufCreate .*[.](liquid) %{ set-option buffer filetype liquid }
+hook global BufCreate .*[.](lua) %{ set-option buffer filetype lua }
+hook global BufCreate .+\.eml %{ set-option buffer filetype mail }
+hook global BufCreate .*(/?[mM]akefile|\.mk|\.make) %{ set-option buffer filetype make }
+hook global BufCreate (.*[.](markdown|md|mkd|Rmd)|\*aichat\*) %{ set-option buffer filetype markdown }
+hook global BufCreate .*[.](nu) %{ set-option buffer filetype nu }
+hook global BufCreate .*[.](org) %{ set-option buffer filetype org }
+hook global BufCreate .*[.](pest) %{ set-option buffer filetype pest }
+hook global BufCreate .*(?<!\.blade)\.php$ %{ set-option buffer filetype php }
+hook global BufCreate .*\.blade\.php$ %{ set-option buffer filetype blade }
+hook global BufCreate .*[.](prisma) %{ set-option buffer filetype prisma }
+hook global BufCreate .*[.](pug|jade) %{ set-option buffer filetype pug }
+hook global BufCreate .*[.](py) %{ set-option buffer filetype python }
+hook global BufCreate .*(([.](rb))|(irbrc)|(pryrc)|(Brewfile)|(Capfile|[.]cap)|(Gemfile|[.]gemspec)|(Guardfile)|(Rakefile|[.]rake)|(Thorfile|[.]thor)|(Vagrantfile))  %{ set-option buffer filetype ruby }
+hook global BufCreate .*[.](rust|rs) %{ set-option buffer filetype rust }
+hook global BufCreate .*[.](scss) %{ set-option buffer filetype scss }
+hook global BufCreate .*[.](slang) %{ set-option buffer filetype slang }
+hook global BufCreate .*[.](?i)sql %{ set-option buffer filetype sql }
+hook global BufCreate .*[.](svelte) %{ set-option buffer filetype svelte }
+hook global BufCreate .*[.](swift) %{ set-option buffer filetype swift }
+hook global BufCreate .*[.](task) %{ set-option buffer filetype task }
+hook global BufCreate .*[.](toml) %{ set-option buffer filetype toml }
+hook global BufCreate .*[.](tsx) %{ set-option buffer filetype tsx }
+hook global BufCreate .*[.](twig) %{ set-option buffer filetype twig }
+hook global BufCreate .*[.][cm]?(ts) %{ set-option buffer filetype typescript }
+hook global BufCreate .*[.](vue) %{ set-option buffer filetype vue }
+hook global BufCreate .*[.](xml) %{ set-option buffer filetype xml }
+hook global BufCreate .*[.](ya?ml) %{ set-option buffer filetype yaml }
+hook global BufCreate .*[.](zig|zon) %{ set-option buffer filetype zig }
+
