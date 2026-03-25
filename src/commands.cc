@@ -4015,9 +4015,21 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
     uint32_t outdent_cap = find_capture_index(query, "outdent");
     uint32_t outdent_always_cap = find_capture_index(query, "outdent.always");
 
-    // Compute byte position and new_line_byte_pos
+    // Compute byte position: use first non-whitespace on the line (or line end)
+    // so ts_node_descendant_for_byte_range finds the actual content node (e.g. "}")
     auto& byte_index = syntax_tree.byte_index();
-    uint32_t byte_pos = byte_index.byte_offset({target_line, ByteCount{0}});
+    ByteCount content_col{0};
+    if (target_line < buffer.line_count())
+    {
+        StringView line_content = buffer[target_line];
+        while (content_col < line_content.length()
+               and (line_content[(int)content_col] == ' '
+                    or line_content[(int)content_col] == '\t'))
+            content_col++;
+        if (content_col >= line_content.length() and content_col > 0)
+            content_col = line_content.length() - 1;
+    }
+    uint32_t byte_pos = byte_index.byte_offset({target_line, content_col});
     Optional<uint32_t> new_line_byte_pos;
     if (new_line)
         new_line_byte_pos = byte_pos;
