@@ -4058,7 +4058,7 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
         // Filter by predicates
         if (match.pattern_index < (uint32_t)ind_preds.size()
             and not ind_preds[(int)match.pattern_index].empty()
-            and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer))
+            and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer, new_line_byte_pos))
             continue;
 
         for (uint16_t c = 0; c < match.capture_count; ++c)

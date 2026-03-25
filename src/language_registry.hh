@@ -46,7 +46,8 @@ using PatternPredicates = Vector<Vector<QueryPredicate>>;
 PatternPredicates parse_query_predicates(const TSQuery* query);
 bool predicates_match(const Vector<QueryPredicate>& predicates,
                       const TSQueryMatch& match,
-                      const Buffer& buffer);
+                      const Buffer& buffer,
+                      Optional<uint32_t> new_line_byte_pos = {});
 
 class LanguageConfig
 {

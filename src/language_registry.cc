@@ -356,7 +356,8 @@ PatternPredicates parse_query_predicates(const TSQuery* query)
 
 bool predicates_match(const Vector<QueryPredicate>& predicates,
                       const TSQueryMatch& match,
-                      const Buffer& buffer)
+                      const Buffer& buffer,
+                      Optional<uint32_t> new_line_byte_pos)
 {
     for (const auto& pred : predicates)
     {
@@ -488,7 +489,17 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
             if (not found2)
                 return false;  // missing capture -> conservative fail
 
-            bool same = ts_node_start_point(node).row == ts_node_start_point(node2).row;
+            // Adjust line numbers for virtual newline insertion
+            uint32_t row1 = ts_node_start_point(node).row;
+            uint32_t row2 = ts_node_start_point(node2).row;
+            if (new_line_byte_pos)
+            {
+                if (ts_node_start_byte(node) >= *new_line_byte_pos)
+                    row1++;
+                if (ts_node_start_byte(node2) >= *new_line_byte_pos)
+                    row2++;
+            }
+            bool same = row1 == row2;
             if (pred.type == PredicateType::SameLine and not same)
                 return false;
             if (pred.type == PredicateType::NotSameLine and same)
@@ -499,7 +510,17 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
         case PredicateType::OneLine:
         case PredicateType::NotOneLine:
         {
-            bool one = ts_node_start_point(node).row == ts_node_end_point(node).row;
+            // Adjust for virtual newline insertion (start uses >=, end uses >)
+            uint32_t start_row = ts_node_start_point(node).row;
+            uint32_t end_row = ts_node_end_point(node).row;
+            if (new_line_byte_pos)
+            {
+                if (ts_node_start_byte(node) >= *new_line_byte_pos)
+                    start_row++;
+                if (ts_node_end_byte(node) > *new_line_byte_pos)
+                    end_row++;
+            }
+            bool one = start_row == end_row;
             if (pred.type == PredicateType::OneLine and not one)
                 return false;
             if (pred.type == PredicateType::NotOneLine and one)
