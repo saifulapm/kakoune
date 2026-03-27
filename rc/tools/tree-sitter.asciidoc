@@ -3,12 +3,51 @@
 Native tree-sitter integration providing syntax-aware highlighting,
 indentation, text objects, navigation, code folding, and symbol navigation.
 
-== Setup
+Query files for 330 languages are bundled from Helix upstream.
 
-Tree-sitter requires grammar files and query files for each language:
+== Grammar Management
 
-- Grammar binaries: `$KAKOUNE_RUNTIME/runtime/grammars/<language>.so`
-- Query files: `$KAKOUNE_RUNTIME/runtime/queries/<language>/`
+Grammars are compiled shared libraries (`.so`/`.dylib`) built from
+tree-sitter grammar source repositories. Grammars are auto-installed
+on first use — when you open a file, if the grammar is not yet compiled,
+it will be fetched and built automatically.
+
+*tree-sitter-install* [langs...]::
+    install grammars; without arguments installs for current buffer's
+    language; with arguments installs specific languages
+
+*tree-sitter-update* [langs...]::
+    re-fetch and rebuild grammars (open a file of that language first)
+
+*tree-sitter-remove* <langs...>::
+    remove user-installed grammars
+
+*tree-sitter-install-list*::
+    show all installed grammars
+
+Grammar definitions are in `rc/tools/tree-sitter-grammars.kak`. Each
+language has a filetype hook that sets the source repository and revision:
+
+-----
+hook global BufSetOption filetype=rust %{
+    set-option buffer tree_sitter_lang "rust"
+    set-option buffer tree_sitter_source "https://github.com/tree-sitter/tree-sitter-rust"
+    set-option buffer tree_sitter_rev "261b20226c04..."
+    set-option buffer tree_sitter_subpath ""
+}
+-----
+
+To override a grammar source, add your own hook in kakrc (runs after autoload).
+
+== File Locations
+
+Lookup order (config overrides runtime):
+
+1. `%val{config}/runtime/grammars/` and `%val{config}/runtime/queries/<lang>/`
+2. `%val{runtime}/runtime/grammars/` and `%val{runtime}/runtime/queries/<lang>/`
+
+Grammars are installed to `%val{config}/runtime/grammars/`.
+Bundled queries ship in `%val{runtime}/runtime/queries/`.
 
 Query files follow Helix/Neovim naming conventions:
 
@@ -20,12 +59,15 @@ Query files follow Helix/Neovim naming conventions:
 - `folds.scm` — foldable regions
 - `tags.scm` — symbol definitions for navigation
 
+== Enabling/Disabling
+
 Tree-sitter is auto-enabled when a filetype is set. To manually control:
 
------
-tree-sitter-enable
-tree-sitter-disable
------
+*tree-sitter-enable*::
+    enable tree-sitter for current buffer
+
+*tree-sitter-disable*::
+    disable tree-sitter for current buffer
 
 == Highlighting
 
