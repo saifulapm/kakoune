@@ -1664,113 +1664,6 @@ private:
     }
 };
 
-// Fold highlighter: like ReplaceRangesHighlighter but does NOT skip
-// replacements when cursor is inside the range. This prevents folds
-// from "opening" when the cursor enters them.
-const HighlighterDesc tree_sitter_fold_desc = {
-    "Parameters: none\n"
-    "Replace ranges from tree_sitter_folds option, keeping folds\n"
-    "closed even when cursor is inside them",
-    {}
-};
-
-struct TreeSitterFoldHighlighter : Highlighter
-{
-    TreeSitterFoldHighlighter()
-        : Highlighter{HighlightPass::Replace} {}
-
-    static UniquePtr<Highlighter> create(HighlighterParameters params, Highlighter*)
-    {
-        if (params.size() != 0)
-            throw runtime_error("tree-sitter-fold takes no parameters");
-        return make_unique_ptr<TreeSitterFoldHighlighter>();
-    }
-
-private:
-    static bool is_valid(Buffer& buffer, BufferCoord c)
-    {
-        return c.line >= 0 and c.column >= 0 and c.line < buffer.line_count()
-               and c.column <= buffer[c.line].length();
-    }
-
-    void do_highlight(HighlightContext context, DisplayBuffer& display_buffer, BufferRange) override
-    {
-        auto& buffer = context.context.buffer();
-        auto& range_and_faces =
-            context.context.options()["tree_sitter_folds"]
-            .template get_mutable<RangeAndStringList>();
-        update_ranges(buffer, range_and_faces.prefix, range_and_faces.list);
-        range_and_faces.prefix = buffer.timestamp();
-
-        for (auto& [range, spec] : range_and_faces.list)
-        {
-            try
-            {
-                if (not is_valid(buffer, range.first) or
-                    (not is_empty(range) and not is_valid(buffer, range.last)))
-                    continue;
-                // NOTE: no is_fully_selected() check — folds stay closed
-                auto end = is_empty(range) ? range.first : buffer.char_next(range.last);
-                replace_range(display_buffer, range.first, end,
-                              [&, range=BufferRange{range.first, end}]
-                              (DisplayLineList& lines, DisplayLineList::iterator line,
-                               DisplayLine::iterator pos){
-                                  auto it = spec.begin(), eol = find(spec, '\n');
-                                  while (true)
-                                  {
-                                      for (auto& atom : parse_display_line({it, eol},
-                                               context.context.faces()))
-                                      {
-                                          atom.replace(range);
-                                          pos = ++line->insert(pos, std::move(atom));
-                                      }
-                                      if (eol == spec.end())
-                                          break;
-                                      auto remaining = line->extract(pos, line->end());
-                                      line = lines.insert(++line, remaining);
-                                      pos = line->begin();
-                                      it = ++eol;
-                                      eol = std::find(it, spec.end(), '\n');
-                                  }
-                              });
-            }
-            catch (runtime_error&)
-            {}
-        }
-    }
-
-    void do_compute_display_setup(HighlightContext context, DisplaySetup& setup) const override
-    {
-        auto& buffer = context.context.buffer();
-        auto& range_and_faces =
-            context.context.options()["tree_sitter_folds"]
-            .template get_mutable<RangeAndStringList>();
-        update_ranges(buffer, range_and_faces.prefix, range_and_faces.list);
-        range_and_faces.prefix = buffer.timestamp();
-
-        for (auto& [range, spec] : range_and_faces.list)
-        {
-            if (not is_valid(buffer, range.first) or
-                (not is_empty(range) and not is_valid(buffer, range.last)))
-                continue;
-            // NOTE: no is_fully_selected() check
-
-            auto last = is_empty(range) ? range.first : buffer.char_next(range.last);
-            if (range.first.line < setup.first_line and last.line >= setup.first_line)
-                setup.first_line = range.first.line;
-
-            if (last.line >= setup.first_line and
-                range.first.line <= setup.first_line + setup.line_count and
-                range.first.line != last.line)
-            {
-                auto added_count = std::count(spec.begin(), spec.end(), '\n');
-                auto removed_count = last.line - range.first.line;
-                setup.line_count += removed_count - added_count;
-            }
-        }
-    }
-};
-
 HighlightPass parse_passes(StringView str)
 {
     HighlightPass passes{};
@@ -3125,9 +3018,6 @@ void register_highlighters()
     registry.insert({
         "tree-sitter-rainbow",
         { RainbowBracketHighlighter::create, &rainbow_bracket_desc } });
-    registry.insert({
-        "tree-sitter-fold",
-        { TreeSitterFoldHighlighter::create, &tree_sitter_fold_desc } });
     registry.insert({
         "wrap",
         { WrapHighlighter::create, &wrap_desc } });
