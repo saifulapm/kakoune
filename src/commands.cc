@@ -5175,6 +5175,258 @@ const CommandDesc tree_goto_def_cmd = {
     }
 };
 
+// Build the shared library extension for the current platform
+#ifdef __APPLE__
+static constexpr StringView dylib_ext = "dylib";
+#else
+static constexpr StringView dylib_ext = "so";
+#endif
+
+static bool grammar_exists(StringView lang)
+{
+    if (not LanguageRegistry::has_instance())
+        return false;
+    auto& reg = LanguageRegistry::instance();
+    String config_path = format("{}/runtime/grammars/{}.{}", reg.config_dir(), lang, dylib_ext);
+    String runtime_path = format("{}/runtime/grammars/{}.{}", reg.runtime_dir(), lang, dylib_ext);
+    struct stat st;
+    return stat(config_path.c_str(), &st) == 0 or stat(runtime_path.c_str(), &st) == 0;
+}
+
+static void install_grammar(Context& context, StringView lang, StringView source,
+                            StringView rev, StringView subpath)
+{
+    if (not LanguageRegistry::has_instance())
+        throw runtime_error("language registry not available");
+
+    auto& reg = LanguageRegistry::instance();
+    String grammar_dir = format("{}/runtime/grammars", reg.config_dir());
+    String lib_path = format("{}/{}.{}", grammar_dir, lang, dylib_ext);
+
+    String script = format(
+        "set -e\n"
+        "mkdir -p '{}'\n"
+        "tmpdir=$(mktemp -d)\n"
+        "trap 'rm -rf \"$tmpdir\"' EXIT\n"
+        "git init \"$tmpdir/repo\" >/dev/null 2>&1\n"
+        "cd \"$tmpdir/repo\"\n"
+        "git remote add origin '{}' >/dev/null 2>&1\n"
+        "git fetch --depth 1 origin '{}' >/dev/null 2>&1\n"
+        "git checkout FETCH_HEAD >/dev/null 2>&1\n"
+        "srcdir=\"$tmpdir/repo{}/src\"\n"
+        "scanner=\"\"\n"
+        "if [ -f \"$srcdir/scanner.cc\" ]; then\n"
+        "    c++ -std=c++14 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.cc\" -o \"$tmpdir/scanner.o\"\n"
+        "    scanner=\"$tmpdir/scanner.o\"\n"
+        "elif [ -f \"$srcdir/scanner.c\" ]; then\n"
+        "    cc -std=c11 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.c\" -o \"$tmpdir/scanner.o\"\n"
+        "    scanner=\"$tmpdir/scanner.o\"\n"
+        "fi\n"
+        "cc -std=c11 -shared -fPIC -fno-exceptions -I \"$srcdir\" "
+        "-o '{}' \"$srcdir/parser.c\" $scanner\n",
+        grammar_dir, source, rev,
+        subpath.empty() ? "" : format("/{}", subpath),
+        lib_path);
+
+    auto [output, status] = ShellManager::instance().eval(script, context, StringView{});
+
+    if (status != 0)
+        throw runtime_error(format("failed to install grammar '{}': {}", lang, output));
+}
+
+const CommandDesc tree_sitter_install_cmd = {
+    "tree-sitter-install",
+    nullptr,
+    "tree-sitter-install [langs...]: install tree-sitter grammars (default: current buffer's language)",
+    {{}, ParameterDesc::Flags::None},
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        if (parser.positional_count() == 0)
+        {
+            // Install for current buffer
+            auto& opts = context.options();
+            String lang = opts["tree_sitter_lang"].get<String>();
+            if (lang.empty())
+                throw runtime_error("no tree-sitter grammar defined for this filetype");
+            if (grammar_exists(lang))
+            {
+                context.print_status({format("grammar '{}' already installed", lang),
+                                      context.faces()["Information"]});
+                return;
+            }
+            String source = opts["tree_sitter_source"].get<String>();
+            String rev = opts["tree_sitter_rev"].get<String>();
+            String subpath = opts["tree_sitter_subpath"].get<String>();
+            if (source.empty() or rev.empty())
+                throw runtime_error(format("no source defined for grammar '{}'", lang));
+
+            context.print_status({format("installing grammar '{}'...", lang),
+                                  context.faces()["Information"]});
+            install_grammar(context, lang, source, rev, subpath);
+            context.print_status({format("grammar '{}' installed", lang),
+                                  context.faces()["Information"]});
+        }
+        else
+        {
+            // Install specific languages — need to look up from grammars.kak options
+            // For explicit names, we use the buffer options which should be set by hooks
+            for (auto& param : parser)
+            {
+                StringView lang = param;
+                if (grammar_exists(lang))
+                {
+                    context.print_status({format("grammar '{}' already installed", lang),
+                                          context.faces()["Information"]});
+                    continue;
+                }
+                // The grammar options are set per-buffer by filetype hooks.
+                // For explicit install, read from current buffer context.
+                auto& opts = context.options();
+                String cur_lang = opts["tree_sitter_lang"].get<String>();
+                if (cur_lang != lang)
+                    throw runtime_error(format("open a '{}' file first, or set tree_sitter_source/rev options", lang));
+
+                String source = opts["tree_sitter_source"].get<String>();
+                String rev = opts["tree_sitter_rev"].get<String>();
+                String subpath = opts["tree_sitter_subpath"].get<String>();
+                if (source.empty() or rev.empty())
+                    throw runtime_error(format("no source defined for grammar '{}'", lang));
+
+                context.print_status({format("installing grammar '{}'...", lang),
+                                      context.faces()["Information"]});
+                install_grammar(context, lang, source, rev, subpath);
+                context.print_status({format("grammar '{}' installed", lang),
+                                      context.faces()["Information"]});
+            }
+        }
+    }
+};
+
+const CommandDesc tree_sitter_install_list_cmd = {
+    "tree-sitter-install-list",
+    nullptr,
+    "tree-sitter-install-list: show installed grammars",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        if (not LanguageRegistry::has_instance())
+            throw runtime_error("language registry not available");
+
+        auto& reg = LanguageRegistry::instance();
+        String config_path = format("{}/runtime/grammars", reg.config_dir());
+        String runtime_path = format("{}/runtime/grammars", reg.runtime_dir());
+
+        String info;
+        auto scan_dir = [&](StringView dir) {
+            auto script = format("ls '{}' 2>/dev/null | sed 's/\\.\\(so\\|dylib\\)$//' | sort -u", dir);
+            auto [output, _] = ShellManager::instance().eval(script, context, StringView{});
+            for (auto line : output | split<StringView>('\n'))
+            {
+                if (line.empty()) continue;
+                if (not info.empty()) info += "\n";
+                info += line;
+            }
+        };
+
+        scan_dir(config_path);
+        scan_dir(runtime_path);
+
+        if (info.empty())
+            info = "(none)";
+
+        if (context.has_client())
+            context.client().info_show("Installed grammars", info, {}, InfoStyle::Prompt);
+    }
+};
+
+const CommandDesc tree_sitter_update_cmd = {
+    "tree-sitter-update",
+    nullptr,
+    "tree-sitter-update [langs...]: re-fetch and rebuild grammars (default: current buffer's language)",
+    {{}, ParameterDesc::Flags::None},
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto do_update = [&](StringView lang) {
+            auto& opts = context.options();
+            String cur_lang = opts["tree_sitter_lang"].get<String>();
+            if (lang.empty())
+                lang = cur_lang;
+            if (lang.empty())
+                throw runtime_error("no tree-sitter grammar defined for this filetype");
+
+            // Remove existing grammar to force reinstall
+            if (LanguageRegistry::has_instance())
+            {
+                auto& reg = LanguageRegistry::instance();
+                String lib_path = format("{}/runtime/grammars/{}.{}", reg.config_dir(), lang, dylib_ext);
+                unlink(lib_path.c_str());
+            }
+
+            String source = opts["tree_sitter_source"].get<String>();
+            String rev = opts["tree_sitter_rev"].get<String>();
+            String subpath = opts["tree_sitter_subpath"].get<String>();
+            if (source.empty() or rev.empty())
+                throw runtime_error(format("no source defined for grammar '{}'", lang));
+
+            context.print_status({format("updating grammar '{}'...", lang),
+                                  context.faces()["Information"]});
+            install_grammar(context, lang, source, rev, subpath);
+            context.print_status({format("grammar '{}' updated", lang),
+                                  context.faces()["Information"]});
+        };
+
+        if (parser.positional_count() == 0)
+            do_update({});
+        else
+            for (auto& param : parser)
+                do_update(param);
+    }
+};
+
+const CommandDesc tree_sitter_remove_cmd = {
+    "tree-sitter-remove",
+    nullptr,
+    "tree-sitter-remove <langs...>: remove installed grammars",
+    {{}, ParameterDesc::Flags::None, 1},
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        if (not LanguageRegistry::has_instance())
+            throw runtime_error("language registry not available");
+
+        auto& reg = LanguageRegistry::instance();
+        for (auto& param : parser)
+        {
+            StringView lang = param;
+            String config_path = format("{}/runtime/grammars/{}.{}", reg.config_dir(), lang, dylib_ext);
+            String runtime_path = format("{}/runtime/grammars/{}.{}", reg.runtime_dir(), lang, dylib_ext);
+
+            bool removed = false;
+            if (unlink(config_path.c_str()) == 0)
+                removed = true;
+            if (unlink(runtime_path.c_str()) == 0)
+                removed = true;
+
+            if (removed)
+                context.print_status({format("grammar '{}' removed", lang),
+                                      context.faces()["Information"]});
+            else
+                throw runtime_error(format("grammar '{}' not installed", lang));
+        }
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -5271,6 +5523,10 @@ void register_commands()
     register_command(tree_sitter_layers_cmd);
     register_command(tree_symbols_cmd);
     register_command(tree_goto_def_cmd);
+    register_command(tree_sitter_install_cmd);
+    register_command(tree_sitter_install_list_cmd);
+    register_command(tree_sitter_update_cmd);
+    register_command(tree_sitter_remove_cmd);
 }
 
 }

@@ -127,6 +127,9 @@ public:
 
     static StringView filetype_to_language(StringView filetype);
 
+    const String& runtime_dir() const { return m_runtime_dir; }
+    const String& config_dir() const { return m_config_dir; }
+
 private:
     const LanguageConfig* load_language(StringView name);
 
