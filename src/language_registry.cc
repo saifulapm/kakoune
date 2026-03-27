@@ -840,9 +840,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                 }
 
                 config.m_injection_predicates = parse_query_predicates(config.m_injection_query);
-
-                write_to_debug_buffer(format("tree-sitter: loaded injection query for '{}' with {} patterns",
-                                             name, pattern_count));
             }
             else
             {
@@ -871,8 +868,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             if (config.m_textobject_query)
             {
                 config.m_textobject_predicates = parse_query_predicates(config.m_textobject_query);
-                write_to_debug_buffer(format("tree-sitter: loaded textobjects for '{}' with {} captures",
-                                             name, ts_query_capture_count(config.m_textobject_query)));
+
             }
             else
                 write_to_debug_buffer(format("tree-sitter: textobject query error in {}/textobjects.scm at offset {} type {}",
@@ -972,8 +968,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             if (config.m_locals_query)
             {
                 config.m_locals_predicates = parse_query_predicates(config.m_locals_query);
-                write_to_debug_buffer(format("tree-sitter: loaded locals for '{}' with {} captures",
-                                             name, ts_query_capture_count(config.m_locals_query)));
             }
             else
                 write_to_debug_buffer(format("tree-sitter: locals query error in {}/locals.scm at offset {} type {}",
@@ -1000,8 +994,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             if (config.m_fold_query)
             {
                 config.m_fold_predicates = parse_query_predicates(config.m_fold_query);
-                write_to_debug_buffer(format("tree-sitter: loaded folds for '{}' with {} captures",
-                                             name, ts_query_capture_count(config.m_fold_query)));
             }
             else
                 write_to_debug_buffer(format("tree-sitter: folds query error in {}/folds.scm at offset {} type {}",
@@ -1028,8 +1020,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
             if (config.m_tags_query)
             {
                 config.m_tags_predicates = parse_query_predicates(config.m_tags_query);
-                write_to_debug_buffer(format("tree-sitter: loaded tags for '{}' with {} captures",
-                                             name, ts_query_capture_count(config.m_tags_query)));
             }
             else
                 write_to_debug_buffer(format("tree-sitter: tags query error in {}/tags.scm at offset {} type {}",
@@ -1045,8 +1035,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     auto* raw = ptr.get();
     m_languages[name.str()] = std::move(ptr);
 
-    write_to_debug_buffer(format("tree-sitter: loaded grammar '{}' with {} captures",
-                                 name, capture_count));
     return raw;
 }
 
