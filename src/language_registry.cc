@@ -1031,6 +1031,87 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         // No tags.scm file — that is fine
     }
 
+    // Load splitjoin config (optional)
+    String sj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/splitjoin/{}.conf", name));
+    try
+    {
+        String sj_text = read_file(sj_path);
+        for (auto line : sj_text | split<StringView>('\n'))
+        {
+            // Skip empty lines and comments
+            if (line.empty() or line[0_byte] == '#')
+                continue;
+
+            // Tokenize by whitespace
+            Vector<StringView> tokens;
+            auto it = line.begin();
+            while (it != line.end())
+            {
+                while (it != line.end() and (*it == ' ' or *it == '\t'))
+                    ++it;
+                if (it == line.end()) break;
+                auto start = it;
+                while (it != line.end() and *it != ' ' and *it != '\t')
+                    ++it;
+                tokens.push_back({start, it});
+            }
+
+            if (tokens.size() < 2)
+                continue;
+
+            LanguageConfig::SplitJoinRule rule;
+            rule.node_type = tokens[0].str();
+
+            if (tokens[1] == "->")
+            {
+                // Redirect rule
+                rule.is_redirect = true;
+                for (size_t i = 2; i < tokens.size(); ++i)
+                    rule.targets.push_back(tokens[i].str());
+            }
+            else
+            {
+                // Direct rule with preset
+                if (tokens[1] == "list")
+                {
+                    rule.preset = LanguageConfig::SplitJoinPreset::List;
+                    rule.last_separator = true;
+                    rule.space_in_brackets = true;
+                }
+                else if (tokens[1] == "dict")
+                {
+                    rule.preset = LanguageConfig::SplitJoinPreset::Dict;
+                    rule.last_separator = true;
+                    rule.space_in_brackets = true;
+                }
+                else if (tokens[1] == "statement")
+                {
+                    rule.preset = LanguageConfig::SplitJoinPreset::Statement;
+                    rule.space_in_brackets = true;
+                }
+                else // "args" or default
+                {
+                    rule.preset = LanguageConfig::SplitJoinPreset::Args;
+                }
+
+                // Parse option overrides
+                for (size_t i = 2; i < tokens.size(); ++i)
+                {
+                    if (tokens[i] == "last_separator")
+                        rule.last_separator = true;
+                    else if (tokens[i] == "space_in_brackets")
+                        rule.space_in_brackets = true;
+                }
+            }
+
+            config.m_splitjoin_rules.push_back(std::move(rule));
+        }
+    }
+    catch (runtime_error&)
+    {
+        // No splitjoin config — that's fine
+    }
+
     auto ptr = make_unique_ptr<LanguageConfig>(std::move(config));
     auto* raw = ptr.get();
     m_languages[name.str()] = std::move(ptr);

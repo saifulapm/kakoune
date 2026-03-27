@@ -5186,25 +5186,81 @@ static bool is_bracket(StringView type)
         or type == "{" or type == "}";
 }
 
-// Find a container node (has bracket children) at or above cursor
-static TSNode find_container_node(TSNode node)
+// Find a container node using splitjoin config or generic bracket detection
+struct SplitJoinMatch
 {
-    while (not ts_node_is_null(node))
+    TSNode node;
+    const LanguageConfig::SplitJoinRule* rule = nullptr;  // null = generic bracket
+};
+
+static SplitJoinMatch find_splitjoin_node(TSNode node, const LanguageConfig* config)
+{
+    const auto& rules = config ? config->splitjoin_rules() : Vector<LanguageConfig::SplitJoinRule>{};
+
+    TSNode walk = node;
+    while (not ts_node_is_null(walk))
     {
-        uint32_t child_count = ts_node_child_count(node);
+        const char* type = ts_node_type(walk);
+        if (type)
+        {
+            StringView type_sv{type};
+
+            // Check config rules
+            for (auto& rule : rules)
+            {
+                if (rule.node_type != type_sv)
+                    continue;
+
+                if (rule.is_redirect)
+                {
+                    // Search children for target node types
+                    for (auto& target : rule.targets)
+                    {
+                        // Search recursively for target
+                        uint32_t cc = ts_node_child_count(walk);
+                        for (uint32_t i = 0; i < cc; ++i)
+                        {
+                            TSNode child = ts_node_child(walk, i);
+                            if (ts_node_is_named(child))
+                            {
+                                const char* ct = ts_node_type(child);
+                                if (ct and StringView{ct} == target)
+                                {
+                                    // Find the direct rule for this target
+                                    for (auto& r2 : rules)
+                                    {
+                                        if (not r2.is_redirect and r2.node_type == target)
+                                            return {child, &r2};
+                                    }
+                                    // No direct rule but found node — use generic
+                                    return {child, nullptr};
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    return {walk, &rule};
+                }
+            }
+        }
+
+        // Generic fallback: bracket container
+        uint32_t child_count = ts_node_child_count(walk);
         if (child_count >= 2)
         {
-            // Check if first/last children are brackets
-            TSNode first = ts_node_child(node, 0);
-            TSNode last = ts_node_child(node, child_count - 1);
-            const char* first_type = ts_node_type(first);
-            const char* last_type = ts_node_type(last);
-            if (first_type and last_type and is_bracket(first_type) and is_bracket(last_type))
-                return node;
+            TSNode first = ts_node_child(walk, 0);
+            TSNode last = ts_node_child(walk, child_count - 1);
+            const char* ft = ts_node_type(first);
+            const char* lt = ts_node_type(last);
+            if (ft and lt and is_bracket(ft) and is_bracket(lt))
+                return {walk, nullptr};
         }
-        node = ts_node_parent(node);
+
+        walk = ts_node_parent(walk);
     }
-    return node;
+    return {{}, nullptr};
 }
 
 const CommandDesc tree_split_cmd = {
@@ -5221,17 +5277,19 @@ const CommandDesc tree_split_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto cursor = context.selections().main().cursor();
-        TSNode node = find_node_at_cursor(syntax_tree, cursor);
-        TSNode container = find_container_node(node);
+        auto* config = syntax_tree.config();
 
-        if (ts_node_is_null(container))
+        auto cursor_pos = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
+        auto match = find_splitjoin_node(node, config);
+
+        if (ts_node_is_null(match.node))
             throw runtime_error("no splittable node at cursor");
 
+        TSNode container = match.node;
         TSPoint start = ts_node_start_point(container);
         TSPoint end = ts_node_end_point(container);
 
-        // Already multi-line? Nothing to split
         if (start.row != end.row)
             throw runtime_error("node already spans multiple lines");
 
@@ -5239,7 +5297,16 @@ const CommandDesc tree_split_cmd = {
         if (child_count < 2)
             throw runtime_error("node has no children to split");
 
-        // Get indent of the line containing the node
+        // Determine separator and trailing comma from preset
+        bool add_trailing_sep = match.rule ? match.rule->last_separator : false;
+        String separator = ",";
+        if (match.rule)
+        {
+            if (match.rule->preset == LanguageConfig::SplitJoinPreset::Statement)
+                separator = ";";
+        }
+
+        // Get indent
         StringView start_line = buffer[LineCount{(int)start.row}];
         ByteCount ws = 0;
         while (ws < start_line.length() and
@@ -5253,7 +5320,7 @@ const CommandDesc tree_split_cmd = {
             indent_width = tabstop;
         String inner_indent = base_indent + String(' ', CharCount{(int)indent_width});
 
-        // Build the split text
+        // Build split text
         String result;
         TSNode first_child = ts_node_child(container, 0);
         TSNode last_child = ts_node_child(container, child_count - 1);
@@ -5268,16 +5335,27 @@ const CommandDesc tree_split_cmd = {
             result += '\n';
         }
 
-        // Inner children — one per line
+        // Track last named child for trailing separator
+        int last_named_idx = -1;
+        for (int i = (int)child_count - 2; i >= 1; --i)
+        {
+            TSNode ch = ts_node_child(container, (uint32_t)i);
+            if (ts_node_is_named(ch))
+            {
+                last_named_idx = i;
+                break;
+            }
+        }
+
+        // Inner children
         for (uint32_t i = 1; i + 1 < child_count; ++i)
         {
             TSNode child = ts_node_child(container, i);
             const char* type = ts_node_type(child);
 
-            // Skip separator nodes (commas) — attach to previous line
+            // Skip separator nodes — attach to previous line
             if (type and (StringView{type} == "," or StringView{type} == ";"))
             {
-                // Remove trailing newline from result, append separator + newline
                 if (not result.empty() and result.back() == '\n')
                     result = String{result.substr(0_byte, result.length() - 1)};
                 result += type;
@@ -5312,11 +5390,15 @@ const CommandDesc tree_split_cmd = {
                 result += inner_indent;
                 result += line.substr(ByteCount{(int)cs.column},
                                       ByteCount{(int)(ce.column - cs.column)});
+
+                // Add trailing separator if this is the last named child
+                if (add_trailing_sep and (int)i == last_named_idx)
+                    result += separator;
+
                 result += '\n';
             }
             else
             {
-                // Multi-line child — preserve as-is with indent
                 for (uint32_t row = cs.row; row <= ce.row; ++row)
                 {
                     StringView line = buffer[LineCount{(int)row}];
@@ -5342,7 +5424,6 @@ const CommandDesc tree_split_cmd = {
                                   ByteCount{(int)(e.column - s.column)});
         }
 
-        // Replace the node in the buffer
         BufferCoord begin{LineCount{(int)start.row}, ByteCount{(int)start.column}};
         BufferCoord end_coord{LineCount{(int)end.row}, ByteCount{(int)end.column}};
 
@@ -5366,21 +5447,27 @@ const CommandDesc tree_join_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto cursor = context.selections().main().cursor();
-        TSNode node = find_node_at_cursor(syntax_tree, cursor);
-        TSNode container = find_container_node(node);
+        auto* config = syntax_tree.config();
 
-        if (ts_node_is_null(container))
+        auto cursor_pos = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
+        auto match = find_splitjoin_node(node, config);
+
+        if (ts_node_is_null(match.node))
             throw runtime_error("no joinable node at cursor");
 
+        TSNode container = match.node;
         TSPoint start = ts_node_start_point(container);
         TSPoint end = ts_node_end_point(container);
 
-        // Already single-line? Nothing to join
         if (start.row == end.row)
             throw runtime_error("node is already single-line");
 
         uint32_t child_count = ts_node_child_count(container);
+
+        bool space_in = match.rule ? match.rule->space_in_brackets : false;
+        bool is_statement = match.rule and
+            match.rule->preset == LanguageConfig::SplitJoinPreset::Statement;
 
         // Build joined text
         String result;
@@ -5394,6 +5481,8 @@ const CommandDesc tree_join_cmd = {
             StringView line = buffer[LineCount{(int)s.row}];
             result += line.substr(ByteCount{(int)s.column},
                                   ByteCount{(int)(e.column - s.column)});
+            if (space_in)
+                result += ' ';
         }
 
         // Inner children — all on one line
@@ -5403,9 +5492,23 @@ const CommandDesc tree_join_cmd = {
             TSNode child = ts_node_child(container, i);
             const char* type = ts_node_type(child);
 
-            // Separator: attach directly, next child gets a space
+            // Separator: attach directly
             if (type and (StringView{type} == "," or StringView{type} == ";"))
             {
+                // Remove trailing separator if it's the last before closing bracket
+                bool is_trailing = true;
+                for (uint32_t j = i + 1; j + 1 < child_count; ++j)
+                {
+                    TSNode next = ts_node_child(container, j);
+                    if (ts_node_is_named(next))
+                    {
+                        is_trailing = false;
+                        break;
+                    }
+                }
+                if (is_trailing)
+                    continue;  // skip trailing separator on join
+
                 result += type;
                 need_space = true;
                 continue;
@@ -5432,7 +5535,6 @@ const CommandDesc tree_join_cmd = {
                 if (col_end > 0 and line[(int)(col_end - 1)] == '\n')
                     col_end--;
 
-                // Trim leading whitespace for continuation lines
                 if (row != cs.row)
                 {
                     while (col_start < col_end and
@@ -5449,16 +5551,36 @@ const CommandDesc tree_join_cmd = {
             if (child_text.empty())
                 continue;
 
-            if (need_space or (not result.empty() and result.back() != '('
-                               and result.back() != '[' and result.back() != '{'))
+            if (need_space or (not result.empty() and not is_bracket(StringView{&result.back(), 1_byte})
+                               and result.back() != ' '))
                 result += ' ';
 
             result += child_text;
+
+            // Add semicolons for statement preset if not already present
+            if (is_statement and not child_text.empty() and child_text.back() != ';')
+            {
+                // Check if next non-whitespace child is the closing bracket
+                bool at_end = true;
+                for (uint32_t j = i + 1; j + 1 < child_count; ++j)
+                {
+                    if (ts_node_is_named(ts_node_child(container, j)))
+                    {
+                        at_end = false;
+                        break;
+                    }
+                }
+                if (not at_end)
+                    result += ';';
+            }
+
             need_space = false;
         }
 
         // Closing bracket
         {
+            if (space_in and not result.empty() and result.back() != ' ')
+                result += ' ';
             TSPoint s = ts_node_start_point(last_child);
             TSPoint e = ts_node_end_point(last_child);
             StringView line = buffer[LineCount{(int)s.row}];
@@ -5466,7 +5588,6 @@ const CommandDesc tree_join_cmd = {
                                   ByteCount{(int)(e.column - s.column)});
         }
 
-        // Replace the node in the buffer
         BufferCoord begin{LineCount{(int)start.row}, ByteCount{(int)start.column}};
         BufferCoord end_coord{LineCount{(int)end.row}, ByteCount{(int)end.column}};
 
@@ -5490,15 +5611,16 @@ const CommandDesc tree_toggle_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto cursor = context.selections().main().cursor();
-        TSNode node = find_node_at_cursor(syntax_tree, cursor);
-        TSNode container = find_container_node(node);
+        auto* config = syntax_tree.config();
+        auto cursor_pos = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
+        auto match = find_splitjoin_node(node, config);
 
-        if (ts_node_is_null(container))
+        if (ts_node_is_null(match.node))
             throw runtime_error("no splittable/joinable node at cursor");
 
-        TSPoint start = ts_node_start_point(container);
-        TSPoint end = ts_node_end_point(container);
+        TSPoint start = ts_node_start_point(match.node);
+        TSPoint end = ts_node_end_point(match.node);
 
         if (start.row == end.row)
             tree_split_cmd.func(parser, context, shell);
