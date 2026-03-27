@@ -4014,6 +4014,8 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
     uint32_t indent_always_cap = find_capture_index(query, "indent.always");
     uint32_t outdent_cap = find_capture_index(query, "outdent");
     uint32_t outdent_always_cap = find_capture_index(query, "outdent.always");
+    uint32_t extend_cap = find_capture_index(query, "extend");
+    uint32_t extend_prevent_cap = find_capture_index(query, "extend.prevent-once");
 
     // Compute byte position: use first non-whitespace on the line (or line end)
     // so ts_node_descendant_for_byte_range finds the actual content node (e.g. "}")
@@ -4047,6 +4049,9 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
         IndentScope scope;
     };
     HashMap<uintptr_t, Vector<IndentCapture>> indent_captures;
+
+    enum class ExtendCaptureType { Extend, PreventOnce };
+    HashMap<uintptr_t, Vector<ExtendCaptureType>> extend_captures;
 
     QueryCursorGuard cursor;
     ts_query_cursor_set_match_limit(cursor, 256);
@@ -4087,6 +4092,16 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
                 cap_type = IndentCaptureType::OutdentAlways;
                 default_scope = IndentScope::All;
             }
+            else if (cap.index == extend_cap)
+            {
+                extend_captures[(uintptr_t)cap.node.id].push_back(ExtendCaptureType::Extend);
+                continue;
+            }
+            else if (cap.index == extend_prevent_cap)
+            {
+                extend_captures[(uintptr_t)cap.node.id].push_back(ExtendCaptureType::PreventOnce);
+                continue;
+            }
             else
                 continue;  // unknown capture, skip
 
@@ -4100,6 +4115,104 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
 
             uintptr_t node_id = (uintptr_t)cap.node.id;
             indent_captures[node_id].push_back({cap_type, scope});
+        }
+    }
+
+    // Step 2b: Find deepest preceding node and apply @extend logic
+    // (matching Helix init_indent_query lines 832-847 and extend_nodes lines 745-809)
+    if (not extend_captures.empty())
+    {
+        // Find deepest preceding: the last child of `node` that ends before byte_pos,
+        // then descend to its deepest last descendant
+        TSNode deepest_preceding = {};
+        bool have_preceding = false;
+        for (uint32_t ci = 0; ci < ts_node_child_count(node); ++ci)
+        {
+            TSNode child = ts_node_child(node, ci);
+            if (ts_node_end_byte(child) <= byte_pos)
+            {
+                deepest_preceding = child;
+                have_preceding = true;
+            }
+        }
+        if (have_preceding)
+        {
+            // Descend to deepest last child
+            while (ts_node_child_count(deepest_preceding) > 0)
+                deepest_preceding = ts_node_child(deepest_preceding,
+                    ts_node_child_count(deepest_preceding) - 1);
+
+            // Walk up from deepest_preceding toward node, checking extend captures
+            bool stop_extend = false;
+            TSNode walk = deepest_preceding;
+            while (walk.id != node.id)
+            {
+                auto ext_it = extend_captures.find((uintptr_t)walk.id);
+                bool node_captured = false;
+                bool extend_node = false;
+
+                if (ext_it != extend_captures.end())
+                {
+                    for (auto& ext : ext_it->value)
+                    {
+                        if (ext == ExtendCaptureType::PreventOnce)
+                        {
+                            stop_extend = true;
+                        }
+                        else if (ext == ExtendCaptureType::Extend)
+                        {
+                            node_captured = true;
+                            // Condition 1: cursor on same line as node end
+                            uint32_t node_end_line = ts_node_end_point(walk).row;
+                            if (node_end_line == (uint32_t)(int)target_line)
+                            {
+                                extend_node = true;
+                            }
+                            else
+                            {
+                                // Condition 2: cursor line more indented than node start
+                                ColumnCount tabstop = buffer.options()["tabstop"].get<int>();
+                                ColumnCount iw = buffer.options()["indentwidth"].get<int>();
+                                if (iw == 0) iw = tabstop;
+
+                                auto cursor_indent_level = [&](LineCount line) -> int {
+                                    if (line >= buffer.line_count()) return 0;
+                                    StringView content = buffer[line];
+                                    int spaces = 0;
+                                    for (int j = 0; j < (int)content.length(); ++j)
+                                    {
+                                        if (content[j] == ' ') spaces++;
+                                        else if (content[j] == '\t') spaces += (int)tabstop;
+                                        else break;
+                                    }
+                                    return spaces / (int)iw;
+                                };
+
+                                int cursor_indent = cursor_indent_level(target_line);
+                                int node_indent = cursor_indent_level(
+                                    LineCount{(int)ts_node_start_point(walk).row});
+                                if (cursor_indent > node_indent)
+                                    extend_node = true;
+                            }
+                        }
+                    }
+                }
+
+                if (node_captured and stop_extend)
+                {
+                    stop_extend = false;
+                }
+                else if (extend_node and not stop_extend)
+                {
+                    node = walk;
+                    break;
+                }
+
+                TSNode parent_walk = ts_node_parent(walk);
+                if (ts_node_is_null(parent_walk))
+                    break;
+                walk = parent_walk;
+            }
         }
     }
 
