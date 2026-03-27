@@ -320,14 +320,46 @@ static const SJRule sj_zig[] = {
     {"call_expression", false, SJPreset::Args, false, false, ",", "", {}},
 };
 
+// C++ extends C with template support
+static const SJRule sj_cpp[] = {
+    // All C rules
+    {"parameter_list", false, SJPreset::Args, false, false, ",", "", {}},
+    {"argument_list", false, SJPreset::Args, false, false, ",", "", {}},
+    {"initializer_list", false, SJPreset::List, true, true, ",", "", {}},
+    {"compound_statement", false, SJPreset::Statement, false, true, ",", ";", {}},
+    {"enumerator_list", false, SJPreset::List, true, true, ",", "", {}},
+    {"if_statement", true, SJPreset::Args, false, false, ",", "", {"compound_statement"}},
+    {"declaration", true, SJPreset::Args, false, false, ",", "", {"parameter_list", "argument_list", "initializer_list"}},
+    {"call_expression", true, SJPreset::Args, false, false, ",", "", {"argument_list"}},
+    {"enum_specifier", true, SJPreset::Args, false, false, ",", "", {"enumerator_list"}},
+    // C++ extras
+    {"template_argument_list", false, SJPreset::Args, false, false, ",", "", {}},
+    {"template_parameter_list", false, SJPreset::Args, false, false, ",", "", {}},
+    {"template_declaration", true, SJPreset::Args, false, false, ",", "", {"template_parameter_list"}},
+    {"template_type", true, SJPreset::Args, false, false, ",", "", {"template_argument_list"}},
+};
+
+static const SJRule sj_haskell[] = {
+    {"list", false, SJPreset::Args, false, false, ",", "", {}},
+};
+
+static const SJRule sj_yaml[] = {
+    {"flow_sequence", false, SJPreset::List, false, true, ",", "", {}},
+    {"flow_mapping", false, SJPreset::Dict, false, true, ",", "", {}},
+    {"block_sequence", false, SJPreset::List, false, true, ",", "", {}},
+    {"block_mapping", false, SJPreset::Dict, false, true, ",", "", {}},
+};
+
 ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
 {
     if (language == "bash") return sj_bash;
     if (language == "c") return sj_c;
+    if (language == "cpp") return sj_cpp;
     if (language == "css") return sj_css;
     if (language == "dart") return sj_dart;
     if (language == "elixir") return sj_elixir;
     if (language == "go") return sj_go;
+    if (language == "haskell") return sj_haskell;
     if (language == "html") return sj_html;
     if (language == "java") return sj_java;
     if (language == "javascript") return sj_javascript;
@@ -348,7 +380,18 @@ ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
     if (language == "terraform") return sj_terraform;
     if (language == "toml") return sj_toml;
     if (language == "typst") return sj_typst;
+    if (language == "yaml") return sj_yaml;
     if (language == "zig") return sj_zig;
+    // Aliases — languages that share rules with another language
+    if (language == "json5") return sj_json;
+    if (language == "jsonc") return sj_json;
+    if (language == "php_only") return sj_php;
+    if (language == "scss") return sj_css;
+    if (language == "svelte") return sj_html;
+    if (language == "vue") return sj_html;
+    if (language == "tsx") return sj_javascript;
+    if (language == "typescript") return sj_javascript;
+    if (language == "zsh") return sj_bash;
     return {};
 }
 
