@@ -3583,13 +3583,25 @@ static Optional<String> build_fold_spec(const Buffer& buffer,
     if (not indent.empty() and indent.back() == '\n')
         indent = String{indent.substr(0_byte, indent.length() - 1)};
 
+    // Escape | in preview text — tuple separator is |
+    String escaped_preview;
+    for (auto ch : preview)
+    {
+        if (ch == '|')
+            escaped_preview += "\\|";
+        else if (ch == '\\')
+            escaped_preview += "\\\\";
+        else
+            escaped_preview += ch;
+    }
+
     String rs = format("{}.{},{}.{}|",
                        fold_begin.line + 1, fold_begin.column + 1,
                        fold_end.line + 1, fold_end.column + 1);
     rs += "{ts_fold}";
     rs += indent;
     rs += format("+-- {} {}: {}\n", folded_lines,
-                 folded_lines == 1 ? "line" : "lines", preview);
+                 folded_lines == 1 ? "line" : "lines", escaped_preview);
     return rs;
 }
 
