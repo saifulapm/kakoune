@@ -44,10 +44,11 @@
 (single_quoted_string) @string
 (double_quoted_string) @string
 
-; Percent strings — only highlight as string when NOT used as a block body
-; (block bodies get kak self-injection instead)
-(argument (percent_string) @string)
-(switch (percent_string) @string)
+; Percent strings
+(percent_string) @string
+
+; Block body string content — fallback when injection isn't available
+(block_body (string_content) @string)
 
 ; Expansions
 (expansion_type) @keyword.directive

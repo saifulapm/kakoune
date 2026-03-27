@@ -16,18 +16,18 @@
   (#set! injection.language "bash")
   (#set! injection.include-children))
 
-; Inject bash into %sh{...} expansion content
+; Inject bash into %sh{...} expansion content (works at any nesting level)
 ((expansion
   type: (expansion_type) @_type
   content: (string_content) @injection.content)
  (#eq? @_type "sh")
  (#set! injection.language "bash"))
 
-; Self-inject kak into %{...} and %exp{...} block bodies
-; (try, hook, define-command, provide-module, prompt, on-key)
+; Self-inject kak into block body string_content segments
+; (the string_content between expansions in block_body nodes)
 (try_statement
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -38,8 +38,8 @@
   (#set! injection.include-children))
 
 (try_statement
-  handler: (percent_string
-    content: (string_content) @injection.content)
+  handler: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -50,8 +50,8 @@
   (#set! injection.include-children))
 
 (hook_definition
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -62,8 +62,8 @@
   (#set! injection.include-children))
 
 (define_command
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -74,8 +74,8 @@
   (#set! injection.include-children))
 
 (provide_module
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -100,8 +100,8 @@
   (#set! injection.include-children))
 
 (prompt_command
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
@@ -112,8 +112,8 @@
   (#set! injection.include-children))
 
 (on_key_command
-  body: (percent_string
-    content: (string_content) @injection.content)
+  body: (block_body
+    (string_content) @injection.content)
   (#set! injection.language "kak")
   (#set! injection.include-children))
 
