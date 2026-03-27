@@ -184,6 +184,121 @@ set-face global ts_rainbow_6 cyan
 # Fold face — for fold summary lines (inherits from comment, adds italic)
 set-face global ts_fold comment
 
+# Grammar installation
+define-command tree-sitter-install -params 0..1 \
+    -docstring "tree-sitter-install [lang]: install grammar for current buffer or given language" %{
+    evaluate-commands %sh{
+        lang="${1:-$kak_opt_tree_sitter_lang}"
+        source="$kak_opt_tree_sitter_source"
+        rev="$kak_opt_tree_sitter_rev"
+        subpath="$kak_opt_tree_sitter_subpath"
+
+        if [ -z "$lang" ]; then
+            printf 'fail "no tree-sitter grammar defined for this filetype"\n'
+            exit
+        fi
+
+        # Determine install directory and extension
+        config_dir="$kak_config"
+        if [ -z "$config_dir" ]; then
+            config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/kak"
+        fi
+        grammar_dir="$config_dir/runtime/grammars"
+        mkdir -p "$grammar_dir"
+
+        case "$(uname)" in
+            Darwin) ext="dylib" ;;
+            *)      ext="so" ;;
+        esac
+
+        lib_path="$grammar_dir/$lang.$ext"
+
+        # Check if already installed
+        if [ -f "$lib_path" ]; then
+            printf 'echo -markup "{Information}grammar '\''%s'\'' already installed"\n' "$lang"
+            exit
+        fi
+
+        # Need source info
+        if [ -z "$source" ] || [ -z "$rev" ]; then
+            printf 'fail "no source defined for grammar '\''%s'\''"\n' "$lang"
+            exit
+        fi
+
+        printf 'echo -markup "{Information}installing grammar '\''%s'\''..."\n' "$lang"
+        printf 'nop %%sh{\n'
+        printf '    set -e\n'
+        printf '    tmpdir=$(mktemp -d)\n'
+        printf '    trap "rm -rf $tmpdir" EXIT\n'
+        printf '    git init "$tmpdir/repo" >/dev/null 2>&1\n'
+        printf '    cd "$tmpdir/repo"\n'
+        printf '    git remote add origin "%s" >/dev/null 2>&1\n' "$source"
+        printf '    git fetch --depth 1 origin "%s" >/dev/null 2>&1\n' "$rev"
+        printf '    git checkout FETCH_HEAD >/dev/null 2>&1\n'
+        printf '    srcdir="$tmpdir/repo"\n'
+        printf '    if [ -n "%s" ]; then srcdir="$srcdir/%s"; fi\n' "$subpath" "$subpath"
+        printf '    srcdir="$srcdir/src"\n'
+        printf '    cc_cmd="cc"\n'
+        printf '    scanner=""\n'
+        printf '    if [ -f "$srcdir/scanner.cc" ]; then\n'
+        printf '        c++ -std=c++14 -fPIC -c -I "$srcdir" "$srcdir/scanner.cc" -o "$tmpdir/scanner.o"\n'
+        printf '        scanner="$tmpdir/scanner.o"\n'
+        printf '    elif [ -f "$srcdir/scanner.c" ]; then\n'
+        printf '        cc -std=c11 -fPIC -c -I "$srcdir" "$srcdir/scanner.c" -o "$tmpdir/scanner.o"\n'
+        printf '        scanner="$tmpdir/scanner.o"\n'
+        printf '    fi\n'
+        printf '    cc -std=c11 -shared -fPIC -fno-exceptions -I "$srcdir" \\\n'
+        printf '        -o "%s" "$srcdir/parser.c" $scanner\n' "$lib_path"
+        printf '}\n'
+        printf 'echo -markup "{Information}grammar '\''%s'\'' installed"\n' "$lang"
+    }
+}
+
+define-command tree-sitter-install-list -docstring "list installed grammars" %{
+    info -title "Installed grammars" %sh{
+        config_dir="$kak_config"
+        if [ -z "$config_dir" ]; then
+            config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/kak"
+        fi
+        grammar_dir="$config_dir/runtime/grammars"
+        runtime_dir="$kak_runtime/runtime/grammars"
+
+        {
+            ls "$grammar_dir" 2>/dev/null
+            ls "$runtime_dir" 2>/dev/null
+        } | sed 's/\.\(so\|dylib\)$//' | sort -u | while read -r name; do
+            if [ -n "$name" ]; then
+                printf '%s\n' "$name"
+            fi
+        done
+    }
+}
+
+# Auto-install grammar on buffer enter if not already available
+hook -group tree-sitter-auto-install global WinSetOption filetype=.+ %{
+    evaluate-commands %sh{
+        lang="$kak_opt_tree_sitter_lang"
+        if [ -z "$lang" ]; then exit; fi
+
+        config_dir="$kak_config"
+        if [ -z "$config_dir" ]; then
+            config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/kak"
+        fi
+
+        case "$(uname)" in
+            Darwin) ext="dylib" ;;
+            *)      ext="so" ;;
+        esac
+
+        # Check config dir first, then runtime dir
+        if [ -f "$config_dir/runtime/grammars/$lang.$ext" ]; then exit; fi
+        if [ -f "$kak_runtime/runtime/grammars/$lang.$ext" ]; then exit; fi
+
+        # Not installed — auto-install
+        printf 'tree-sitter-install\n'
+    }
+}
+
 # Code folding support
 declare-option range-specs tree_sitter_folds
 
