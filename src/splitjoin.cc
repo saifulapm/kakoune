@@ -170,11 +170,11 @@ static const SJRule sj_nix[] = {
 };
 
 static const SJRule sj_perl[] = {
-    {"list_expression", false, SJPreset::Statement, false, false, "", "", {}},
+    {"list_expression", false, SJPreset::Statement, false, true, "", "", {}},
     {"block", false, SJPreset::Statement, false, true, "", ";", {}},
     {"array", false, SJPreset::Args, false, false, ",", "", {}},
-    {"hash_ref", false, SJPreset::Dict, true, true, ",", "", {}},
-    {"array_ref", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"hash_ref", false, SJPreset::Dict, true, false, ",", "", {}},
+    {"array_ref", false, SJPreset::Dict, true, false, ",", "", {}},
     {"anonymous_array_expression", true, SJPreset::Args, false, false, ",", "", {"list_expression"}},
     {"anonymous_hash_expression", true, SJPreset::Args, false, false, ",", "", {"list_expression"}},
     {"variable_declaration", true, SJPreset::Args, false, false, ",", "", {"array", "array_ref", "hash_ref"}},
@@ -210,7 +210,7 @@ static const SJRule sj_python[] = {
     {"pattern_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"tuple_pattern", false, SJPreset::List, false, true, ",", "", {}},
     {"tuple", false, SJPreset::List, true, false, ",", "", {}},
-    {"import_from_statement", false, SJPreset::Args, false, false, ",", "", {}},
+    {"import_from_statement", false, SJPreset::Args, true, false, ",", "", {}},
     {"argument_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"parameters", false, SJPreset::Args, true, false, ",", "", {}},
     {"parenthesized_expression", false, SJPreset::Args, false, false, ",", "", {}},
@@ -252,7 +252,7 @@ static const SJRule sj_ruby[] = {
     {"if_modifier", false, SJPreset::Default, false, false, "", "", {}},
     {"unless_modifier", false, SJPreset::Default, false, false, "", "", {}},
     {"conditional", false, SJPreset::Default, false, false, "", "", {}},
-    {"when", false, SJPreset::Default, false, true, "", "", {}},
+    {"when", false, SJPreset::Default, false, false, "", "", {}},
     {"right", false, SJPreset::Default, false, false, "", "", {}},
     {"operator_assignment", true, SJPreset::Args, false, false, ",", "", {"right"}},
     {"method", true, SJPreset::Args, false, false, ",", "", {"body_statement"}},
@@ -317,7 +317,7 @@ static const SJRule sj_zig[] = {
     {"initializer_list", false, SJPreset::List, true, true, ",", "", {}},
     {"struct_declaration", false, SJPreset::List, true, true, ",", "", {}},
     {"enum_declaration", false, SJPreset::List, true, true, ",", "", {}},
-    {"call_expression", false, SJPreset::Args, true, false, ",", "", {}},
+    {"call_expression", false, SJPreset::Args, false, false, ",", "", {}},
 };
 
 // C++ extends C with template support
