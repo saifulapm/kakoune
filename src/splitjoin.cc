@@ -344,10 +344,10 @@ static const SJRule sj_haskell[] = {
 };
 
 static const SJRule sj_yaml[] = {
-    {"flow_sequence", false, SJPreset::List, false, true, ",", "", {}},
-    {"flow_mapping", false, SJPreset::Dict, true, true, ",", "", {}},
-    {"block_sequence", false, SJPreset::List, true, true, ",", ",", {}},
-    {"block_mapping", false, SJPreset::Dict, true, true, ",", ",", {}},
+    {"flow_sequence", false, SJPreset::Default, false, false, "", "", {}},
+    {"flow_mapping", false, SJPreset::Default, false, false, "", "", {}},
+    {"block_sequence", false, SJPreset::Default, false, true, "", ",", {}},
+    {"block_mapping", false, SJPreset::Default, false, true, "", ",", {}},
 };
 
 // TypeScript extends JavaScript with type-specific nodes
