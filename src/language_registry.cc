@@ -8,6 +8,7 @@
 #include "ranges.hh"
 #include "regex.hh"
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
 
@@ -347,7 +348,11 @@ static void parse_single_predicate(const TSQuery* query,
         pred.capture_id = *cap;
         out.push_back(std::move(pred));
     }
-    else if (name != "set!" and name != "is?" and name != "is-not?")
+    // Helix/Neovim query predicates present in borrowed .scm files — safe to ignore
+    else if (name != "set!" and name != "is?" and name != "is-not?"
+             and name != "strip!" and name != "select-adjacent!"
+             and name != "lua-match?" and name != "gsub!"
+             and name != "any-not-eq?")
     {
         String name_s{name};
         if (logged_unknowns.find(name_s) == logged_unknowns.end())
@@ -633,8 +638,18 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                 }
                 catch (runtime_error&)
                 {
-                    write_to_debug_buffer(format("tree-sitter: inherits '{}' not found for query type '{}'",
-                                                 parent_name, query_type));
+                    // A parent that doesn't define a particular query type is
+                    // normal (e.g. _javascript has highlights.scm but not
+                    // injections.scm) — only warn if the parent directory
+                    // itself doesn't exist (likely a typo in the inherits line)
+                    String parent_dir = resolve_path(m_config_dir, m_runtime_dir,
+                        format("runtime/queries/{}", parent_name));
+                    DIR* dir = opendir(parent_dir.c_str());
+                    if (not dir)
+                        write_to_debug_buffer(format("tree-sitter: inherits '{}' — no query directory found",
+                                                     parent_name));
+                    else
+                        closedir(dir);
                 }
             }
         }
