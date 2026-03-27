@@ -4972,7 +4972,7 @@ static Vector<SymbolEntry> collect_symbols(const Buffer& buffer, const SyntaxTre
 
         if (has_def and not sym_name.empty())
         {
-            auto display = format("{} ({}) :{}", sym_name, sym_kind, sym_pos.line + 1);
+            auto display = format("{} ({})", sym_name, sym_kind);
             symbols.push_back({std::move(sym_name), std::move(sym_kind), sym_pos, std::move(display)});
         }
     }
