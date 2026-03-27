@@ -3791,6 +3791,10 @@ const CommandDesc tree_fold_all_cmd = {
             ts_query_cursor_set_match_limit(cursor, 256);
             ts_query_cursor_exec(cursor, fq, ts_tree_root_node(syntax_tree.tree()));
 
+            // Collect all fold ranges
+            struct FoldRange { LineCount first; LineCount last; };
+            Vector<FoldRange> fold_ranges;
+
             TSQueryMatch match;
             while (ts_query_cursor_next_match(cursor, &match))
             {
@@ -3811,10 +3815,30 @@ const CommandDesc tree_fold_all_cmd = {
                     if (end.row <= start.row + 1)
                         continue;
 
-                    auto fold_spec = build_fold_spec(buffer,
-                        LineCount{(int)start.row}, LineCount{(int)end.row});
-                    if (fold_spec)
-                        range_strs.push_back(std::move(*fold_spec));
+                    fold_ranges.push_back({LineCount{(int)start.row},
+                                           LineCount{(int)end.row}});
+                }
+            }
+
+            // Sort by start line, then by size descending (larger first)
+            std::sort(fold_ranges.begin(), fold_ranges.end(),
+                [](const FoldRange& a, const FoldRange& b) {
+                    if (a.first != b.first)
+                        return a.first < b.first;
+                    return (a.last - a.first) > (b.last - b.first);
+                });
+
+            // Filter out nested folds (keep only non-overlapping)
+            LineCount last_fold_end = -1;
+            for (auto& fr : fold_ranges)
+            {
+                if (fr.first <= last_fold_end)
+                    continue;  // nested inside a previous fold
+                auto fold_spec = build_fold_spec(buffer, fr.first, fr.last);
+                if (fold_spec)
+                {
+                    range_strs.push_back(std::move(*fold_spec));
+                    last_fold_end = fr.last;
                 }
             }
 
