@@ -1,0 +1,56 @@
+name: Sync upstream Kakoune
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # daily at 6am UTC
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/mawww/kakoune.git
+
+      - name: Fetch upstream
+        run: git fetch upstream master
+
+      - name: Check for new commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list HEAD..upstream/master --count)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "Upstream is $BEHIND commits ahead"
+
+      - name: Create sync branch and PR
+        if: steps.check.outputs.behind > 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git merge upstream/master --no-edit || true
+
+          if git diff --quiet HEAD; then
+            echo "Already up to date"
+            exit 0
+          fi
+
+          git push origin "$BRANCH"
+
+          # Check if PR already exists
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already exists"
+            exit 0
+          fi
+
+          gh pr create \
+            --title "Sync upstream Kakoune $(date +%Y-%m-%d)" \
+            --body "Automated sync from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
+            --base main \
+            --head "$BRANCH"
