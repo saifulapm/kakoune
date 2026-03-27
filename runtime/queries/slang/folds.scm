@@ -1,4 +1,4 @@
-; inherits: hlsl
+; inherits: cpp
 
 [
   (interface_specifier)
