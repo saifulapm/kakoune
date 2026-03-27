@@ -1043,6 +1043,13 @@ hook global BufSetOption filetype=less %{
     set-option buffer tree_sitter_subpath ""
 }
 
+hook global BufSetOption filetype=liquid %{
+    set-option buffer tree_sitter_lang "liquid"
+    set-option buffer tree_sitter_source "https://github.com/saifulapm/shopify-liquid-treesitter"
+    set-option buffer tree_sitter_rev "68941733fb8c4f594a33c8c60dad391513193186"
+    set-option buffer tree_sitter_subpath ""
+}
+
 hook global BufSetOption filetype=llvm %{
     set-option buffer tree_sitter_lang "llvm"
     set-option buffer tree_sitter_source "https://github.com/benwilliamgraham/tree-sitter-llvm"
