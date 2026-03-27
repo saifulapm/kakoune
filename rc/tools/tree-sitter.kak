@@ -199,6 +199,13 @@ declare-option range-specs tree_sitter_folds
 # Sticky context: shows enclosing function/class when scrolled past
 declare-option str tree_context ""
 
+# Cursor query options (set by tree-query-cursor command)
+declare-option str tree_cursor_lang ""
+declare-option str tree_cursor_node_type ""
+declare-option str tree_cursor_parent_type ""
+declare-option str tree_cursor_in_string "false"
+declare-option str tree_cursor_in_comment "false"
+
 # Auto-enable tree-sitter highlighting on filetype change
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
     try %{ add-highlighter window/tree-sitter tree-sitter }
@@ -236,6 +243,35 @@ hook -group tree-sitter-indent global WinSetOption filetype=.+ %{
 
 hook -group tree-sitter-indent global WinSetOption filetype= %{
     remove-hooks window tree-sitter-indent
+}
+
+# Install/update all grammars defined in tree-sitter-grammars.kak
+define-command tree-sitter-install-all -docstring 'install all missing tree-sitter grammars' %{
+    evaluate-commands %sh{
+        grammars_kak=$(find "$kak_runtime" "$kak_config" -name tree-sitter-grammars.kak 2>/dev/null | head -1)
+        if [ -z "$grammars_kak" ]; then
+            echo 'fail "tree-sitter-grammars.kak not found"'
+            exit
+        fi
+        grep 'set-option buffer tree_sitter_lang' "$grammars_kak" | sed 's/.*tree_sitter_lang "\([^"]*\)".*/\1/' | sort -u | while read -r lang; do
+            printf 'try %%{ tree-sitter-install %s } catch %%{ echo -debug "tree-sitter: install-all: %s: %%val{error}" }\n' "$lang" "$lang"
+        done
+    }
+}
+
+define-command tree-sitter-update-all -docstring 'update all installed tree-sitter grammars' %{
+    evaluate-commands %sh{
+        grammar_dir="${kak_config}/runtime/grammars"
+        if [ ! -d "$grammar_dir" ]; then
+            echo 'fail "no grammars installed"'
+            exit
+        fi
+        for lib in "$grammar_dir"/*; do
+            [ -f "$lib" ] || continue
+            lang=$(basename "$lib" | sed 's/\.[^.]*$//')
+            printf 'try %%{ tree-sitter-update %s } catch %%{ echo -debug "tree-sitter: update-all: %s: %%val{error}" }\n' "$lang" "$lang"
+        done
+    }
 }
 
 # Tree-sitter text object key mappings
