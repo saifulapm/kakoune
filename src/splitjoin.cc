@@ -317,7 +317,7 @@ static const SJRule sj_zig[] = {
     {"initializer_list", false, SJPreset::List, true, true, ",", "", {}},
     {"struct_declaration", false, SJPreset::List, true, true, ",", "", {}},
     {"enum_declaration", false, SJPreset::List, true, true, ",", "", {}},
-    {"call_expression", false, SJPreset::Args, false, false, ",", "", {}},
+    {"call_expression", false, SJPreset::Args, true, false, ",", "", {}},
 };
 
 // C++ extends C with template support
