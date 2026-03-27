@@ -2623,6 +2623,18 @@ private:
     HashSet<uint32_t> m_local_refs;
     size_t m_local_refs_timestamp = 0;
 
+    // Highlight result cache — skip query re-execution when tree unchanged
+    struct CachedHighlight
+    {
+        BufferCoord begin;
+        BufferCoord end;
+        String face_name;
+    };
+    Vector<CachedHighlight> m_cached_highlights;
+    size_t m_highlight_cache_timestamp = -1u;
+    uint32_t m_cached_start_byte = 0;
+    uint32_t m_cached_end_byte = 0;
+
     // Run a highlight query and apply faces to the display buffer
     void run_highlights(TSQuery* query, TSNode root,
                         const Vector<String>& capture_faces,
@@ -2636,7 +2648,7 @@ private:
             return;
 
         ts_query_cursor_set_byte_range(m_cursor, start_byte, end_byte);
-        ts_query_cursor_set_match_limit(m_cursor, 256);
+        ts_query_cursor_set_match_limit(m_cursor, 4096);
         ts_query_cursor_exec(m_cursor, query, root);
 
         TSQueryMatch match;
@@ -2678,6 +2690,7 @@ private:
                 Face face = context.context.faces()[face_name];
                 highlight_range(display_buffer, begin_coord, end_coord, false,
                     apply_face(face));
+                m_cached_highlights.push_back({begin_coord, end_coord, face_name});
             }
             catch (runtime_error&) {}
         }
@@ -2737,6 +2750,32 @@ private:
                                                   config->locals_predicates());
             m_local_refs_timestamp = syntax_tree.timestamp();
         }
+
+        // Check highlight cache: skip query if tree unchanged and viewport same
+        if (syntax_tree.timestamp() == m_highlight_cache_timestamp
+            and start_byte == m_cached_start_byte
+            and end_byte == m_cached_end_byte
+            and not m_cached_highlights.empty())
+        {
+            // Replay cached highlights
+            for (auto& ch : m_cached_highlights)
+            {
+                try
+                {
+                    Face face = context.context.faces()[ch.face_name];
+                    highlight_range(display_buffer, ch.begin, ch.end, false,
+                        apply_face(face));
+                }
+                catch (runtime_error&) {}
+            }
+            return;
+        }
+
+        // Cache miss — run queries and build cache
+        m_cached_highlights.clear();
+        m_highlight_cache_timestamp = syntax_tree.timestamp();
+        m_cached_start_byte = start_byte;
+        m_cached_end_byte = end_byte;
 
         // Highlight root layer
         run_highlights(root_query,
