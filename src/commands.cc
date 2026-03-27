@@ -3902,7 +3902,7 @@ const CommandDesc tree_update_context_cmd = {
     }
 };
 
-enum class IndentCaptureType { Indent, IndentAlways, Outdent, OutdentAlways };
+enum class IndentCaptureType { Indent, IndentAlways, Outdent, OutdentAlways, Align };
 
 struct IndentAccum
 {
@@ -3910,6 +3910,7 @@ struct IndentAccum
     int indent_always = 0;
     int outdent = 0;
     int outdent_always = 0;
+    String align;  // non-empty = alignment string (overrides regular indent)
 
     void add_capture(IndentCaptureType type)
     {
@@ -3931,11 +3932,28 @@ struct IndentAccum
             outdent_always++;
             outdent = 0;
             break;
+        case IndentCaptureType::Align:
+            break;  // alignment is set directly, not via add_capture
         }
     }
 
+    void set_align(String s)
+    {
+        if (align.empty())
+            align = std::move(s);
+    }
+
+    // Matching Helix indent.rs:475-488
     void add_line(const IndentAccum& other)
     {
+        // Alignment overrides indent from outer scopes
+        if (not align.empty())
+            return;
+        if (not other.align.empty())
+        {
+            align = other.align;
+            return;
+        }
         indent += other.indent;
         indent_always += other.indent_always;
         outdent += other.outdent;
@@ -3946,6 +3964,12 @@ struct IndentAccum
     {
         return (indent + indent_always) - (outdent + outdent_always);
     }
+};
+
+struct IndentResult
+{
+    int level = 0;
+    String align;  // non-empty = use alignment + level additional indent
 };
 
 // Get effective start line, adjusted for new-line insertion
@@ -3996,14 +4020,14 @@ static bool is_first_in_line(TSNode node, const Buffer& buffer,
     return true;
 }
 
-static int compute_indent_for_line(const SyntaxTree& syntax_tree,
+static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
                                    const Buffer& buffer,
                                    LineCount target_line,
                                    bool new_line)
 {
     auto* config = syntax_tree.config();
     if (not config or not config->indent_query())
-        return 0;
+        return {};
 
     TSQuery* query = config->indent_query();
     const auto& ind_preds = config->indent_predicates();
@@ -4016,6 +4040,8 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
     uint32_t outdent_always_cap = find_capture_index(query, "outdent.always");
     uint32_t extend_cap = find_capture_index(query, "extend");
     uint32_t extend_prevent_cap = find_capture_index(query, "extend.prevent-once");
+    uint32_t align_cap = find_capture_index(query, "align");
+    uint32_t anchor_cap = find_capture_index(query, "anchor");
 
     // Compute byte position: use first non-whitespace on the line (or line end)
     // so ts_node_descendant_for_byte_range finds the actual content node (e.g. "}")
@@ -4040,13 +4066,14 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
     TSNode root = ts_tree_root_node(syntax_tree.tree());
     TSNode node = ts_node_descendant_for_byte_range(root, byte_pos, byte_pos);
     if (ts_node_is_null(node))
-        return 0;
+        return {};
 
     // Step 2: Collect indent captures into HashMap keyed by node ID
     struct IndentCapture
     {
         IndentCaptureType type;
         IndentScope scope;
+        String align_str;  // only used for Align type
     };
     HashMap<uintptr_t, Vector<IndentCapture>> indent_captures;
 
@@ -4066,6 +4093,20 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
             and not predicates_match(ind_preds[(int)match.pattern_index], match, buffer, new_line_byte_pos))
             continue;
 
+        // First pass: find @anchor node for this match (needed by @align)
+        TSNode anchor_node = {};
+        bool have_anchor = false;
+        for (uint16_t c = 0; c < match.capture_count; ++c)
+        {
+            if (match.captures[c].index == anchor_cap)
+            {
+                anchor_node = match.captures[c].node;
+                have_anchor = true;
+                break;
+            }
+        }
+
+        // Second pass: process all captures
         for (uint16_t c = 0; c < match.capture_count; ++c)
         {
             auto& cap = match.captures[c];
@@ -4092,6 +4133,45 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
                 cap_type = IndentCaptureType::OutdentAlways;
                 default_scope = IndentScope::All;
             }
+            else if (cap.index == align_cap)
+            {
+                if (not have_anchor)
+                    continue;  // @align requires @anchor
+
+                // Compute alignment string: text from line start to anchor position
+                uint32_t anchor_row = ts_node_start_point(anchor_node).row;
+                uint32_t anchor_col = ts_node_start_point(anchor_node).column;
+                String align_str;
+                if (anchor_row < (uint32_t)(int)buffer.line_count())
+                {
+                    StringView line_content = buffer[LineCount{(int)anchor_row}];
+                    // Convert prefix to whitespace of same visual width
+                    for (uint32_t col = 0; col < anchor_col
+                         and col < (uint32_t)(int)line_content.length(); ++col)
+                    {
+                        if (line_content[(int)col] == '\t')
+                            align_str += '\t';
+                        else
+                            align_str += ' ';
+                    }
+                }
+
+                // Store as Align capture with the alignment string
+                IndentScope scope = IndentScope::All;  // default for @align
+                if (match.pattern_index < (uint32_t)ind_scopes.size()
+                    and ind_scopes[(int)match.pattern_index])
+                    scope = *ind_scopes[(int)match.pattern_index];
+
+                uintptr_t node_id = (uintptr_t)cap.node.id;
+                // Store alignment string directly in indent_captures
+                IndentCapture ic{IndentCaptureType::Align, scope, std::move(align_str)};
+                indent_captures[node_id].push_back(std::move(ic));
+                continue;
+            }
+            else if (cap.index == anchor_cap)
+            {
+                continue;  // anchor handled in first pass
+            }
             else if (cap.index == extend_cap)
             {
                 extend_captures[(uintptr_t)cap.node.id].push_back(ExtendCaptureType::Extend);
@@ -4114,7 +4194,7 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
             }
 
             uintptr_t node_id = (uintptr_t)cap.node.id;
-            indent_captures[node_id].push_back({cap_type, scope});
+            indent_captures[node_id].push_back({cap_type, scope, {}});
         }
     }
 
@@ -4231,17 +4311,36 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
         {
             for (auto& def : it->value)
             {
-                switch (def.scope)
+                if (def.type == IndentCaptureType::Align)
                 {
-                case IndentScope::All:
-                    if (is_first)
-                        indent_for_line.add_capture(def.type);
-                    else
+                    // Alignment: apply to the appropriate accumulator
+                    switch (def.scope)
+                    {
+                    case IndentScope::All:
+                        if (is_first)
+                            indent_for_line.set_align(def.align_str);
+                        else
+                            indent_for_line_below.set_align(def.align_str);
+                        break;
+                    case IndentScope::Tail:
+                        indent_for_line_below.set_align(def.align_str);
+                        break;
+                    }
+                }
+                else
+                {
+                    switch (def.scope)
+                    {
+                    case IndentScope::All:
+                        if (is_first)
+                            indent_for_line.add_capture(def.type);
+                        else
+                            indent_for_line_below.add_capture(def.type);
+                        break;
+                    case IndentScope::Tail:
                         indent_for_line_below.add_capture(def.type);
-                    break;
-                case IndentScope::Tail:
-                    indent_for_line_below.add_capture(def.type);
-                    break;
+                        break;
+                    }
                 }
             }
             indent_captures.remove(it->key);
@@ -4290,7 +4389,7 @@ static int compute_indent_for_line(const SyntaxTree& syntax_tree,
         node = parent;
     }
 
-    return result.net();
+    return {result.net(), std::move(result.align)};
 }
 
 const CommandDesc tree_indent_cmd = {
@@ -4336,9 +4435,20 @@ const CommandDesc tree_indent_cmd = {
         for (int i = (int)lines_to_indent.size() - 1; i >= 0; --i)
         {
             auto line = lines_to_indent[i];
-            int level = compute_indent_for_line(syntax_tree, buffer, line, false);
-            int target_spaces = std::max(0, level) * (int)indent_width;
-            String indent_str(' ', CharCount{target_spaces});
+            auto result = compute_indent_for_line(syntax_tree, buffer, line, false);
+            String indent_str;
+            if (not result.align.empty())
+            {
+                indent_str = std::move(result.align);
+                int extra = std::max(0, result.level) * (int)indent_width;
+                for (int s = 0; s < extra; ++s)
+                    indent_str += ' ';
+            }
+            else
+            {
+                int target_spaces = std::max(0, result.level) * (int)indent_width;
+                indent_str = String(' ', CharCount{target_spaces});
+            }
 
             auto content = buffer[line];
             ByteCount ws_end = 0;
@@ -4380,9 +4490,20 @@ const CommandDesc tree_indent_newline_cmd = {
         if (indent_width == 0)
             indent_width = tabstop;
 
-        int level = compute_indent_for_line(syntax_tree, buffer, line, true);
-        int target_spaces = std::max(0, level) * (int)indent_width;
-        String indent_str(' ', CharCount{target_spaces});
+        auto result = compute_indent_for_line(syntax_tree, buffer, line, true);
+        String indent_str;
+        if (not result.align.empty())
+        {
+            indent_str = std::move(result.align);
+            int extra = std::max(0, result.level) * (int)indent_width;
+            for (int s = 0; s < extra; ++s)
+                indent_str += ' ';
+        }
+        else
+        {
+            int target_spaces = std::max(0, result.level) * (int)indent_width;
+            indent_str = String(' ', CharCount{target_spaces});
+        }
 
         // Replace current line's leading whitespace
         auto cur_content = buffer[line];
