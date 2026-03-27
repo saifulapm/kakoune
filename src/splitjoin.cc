@@ -104,7 +104,7 @@ static const SJRule sj_javascript[] = {
     {"named_imports", false, SJPreset::Dict, true, true, ",", "", {}},
     {"export_clause", false, SJPreset::Dict, true, true, ",", "", {}},
     {"statement_block", false, SJPreset::Statement, false, true, "", ";", {}},
-    {"body", false, SJPreset::Statement, false, true, "", ";", {}},
+    {"body", false, SJPreset::Statement, false, false, "", "", {}},
     {"jsx_opening_element", false, SJPreset::Default, false, false, "", "", {}},
     {"jsx_element", false, SJPreset::Default, false, false, "", "", {}},
     {"jsx_self_closing_element", false, SJPreset::Default, false, false, "", "", {}},
@@ -350,6 +350,45 @@ static const SJRule sj_yaml[] = {
     {"block_mapping", false, SJPreset::Dict, true, true, ",", ",", {}},
 };
 
+// TypeScript extends JavaScript with type-specific nodes
+static const SJRule sj_typescript[] = {
+    // All JavaScript rules
+    {"object", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"object_pattern", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"array", false, SJPreset::List, true, true, ",", "", {}},
+    {"array_pattern", false, SJPreset::List, true, true, ",", "", {}},
+    {"formal_parameters", false, SJPreset::Args, false, false, ",", "", {}},
+    {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
+    {"named_imports", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"export_clause", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"statement_block", false, SJPreset::Statement, false, true, "", ";", {}},
+    {"body", false, SJPreset::Statement, false, false, "", "", {}},
+    {"jsx_opening_element", false, SJPreset::Default, false, false, "", "", {}},
+    {"jsx_element", false, SJPreset::Default, false, false, "", "", {}},
+    {"jsx_self_closing_element", false, SJPreset::Default, false, false, "", "", {}},
+    {"arrow_function", true, SJPreset::Args, false, false, ",", "", {"body"}},
+    {"lexical_declaration", true, SJPreset::Args, false, false, ",", "", {"object_type", "statement_block"}},
+    {"pair", true, SJPreset::Args, false, false, ",", "", {"array", "object"}},
+    {"variable_declaration", true, SJPreset::Args, false, false, ",", "", {"array", "object"}},
+    {"assignment_expression", true, SJPreset::Args, false, false, ",", "", {"array", "object"}},
+    {"try_statement", true, SJPreset::Args, false, false, ",", "", {"statement_block"}},
+    {"function_declaration", true, SJPreset::Args, false, false, ",", "", {"statement_block"}},
+    {"catch_clause", true, SJPreset::Args, false, false, ",", "", {"statement_block"}},
+    {"finally_clause", true, SJPreset::Args, false, false, ",", "", {"statement_block"}},
+    {"export_statement", true, SJPreset::Args, false, false, ",", "", {"export_clause", "object_type", "statement_block"}},
+    {"import_statement", true, SJPreset::Args, false, false, ",", "", {"named_imports", "object"}},
+    {"if_statement", true, SJPreset::Args, false, false, ",", "", {"statement_block", "object"}},
+    // TypeScript extras
+    {"object_type", false, SJPreset::Dict, true, true, ";", "", {}},
+    {"tuple_type", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"enum_body", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"type_parameters", false, SJPreset::Args, true, false, ",", "", {}},
+    {"type_arguments", false, SJPreset::Args, true, false, ",", "", {}},
+    {"ambient_declaration", true, SJPreset::Args, false, false, ",", "", {"object_type", "statement_block"}},
+    {"type_alias_declaration", true, SJPreset::Args, false, false, ",", "", {"tuple_type", "object", "array", "object_type", "statement_block"}},
+    {"enum_declaration", true, SJPreset::Args, false, false, ",", "", {"enum_body"}},
+};
+
 ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
 {
     if (language == "bash") return sj_bash;
@@ -389,8 +428,8 @@ ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
     if (language == "scss") return sj_css;
     if (language == "svelte") return sj_html;
     if (language == "vue") return sj_html;
-    if (language == "tsx") return sj_javascript;
-    if (language == "typescript") return sj_javascript;
+    if (language == "typescript") return sj_typescript;
+    if (language == "tsx") return sj_typescript;
     if (language == "zsh") return sj_bash;
     return {};
 }
