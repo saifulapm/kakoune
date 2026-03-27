@@ -3697,6 +3697,30 @@ const CommandDesc tree_fold_cmd = {
                 throw runtime_error("no foldable node at cursor");
         }
 
+        // Prefer folding compound_statement body over full statement node
+        // This keeps else/catch/finally clauses visible after folding
+        if (strcmp(ts_node_type(node), "compound_statement") != 0)
+        {
+            uint32_t count = ts_node_named_child_count(node);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                TSNode child = ts_node_named_child(node, i);
+                if (strcmp(ts_node_type(child), "compound_statement") != 0)
+                    continue;
+                TSPoint cs = ts_node_start_point(child);
+                TSPoint ce = ts_node_end_point(child);
+                if (ce.row <= cs.row)
+                    continue;
+                BufferCoord cb{LineCount{(int)cs.row}, ByteCount{(int)cs.column}};
+                BufferCoord cc{LineCount{(int)ce.row}, ByteCount{(int)ce.column}};
+                if (cb <= cursor_pos and cursor_pos <= cc)
+                {
+                    node = child;
+                    break;
+                }
+            }
+        }
+
         TSPoint start = ts_node_start_point(node);
         TSPoint end = ts_node_end_point(node);
 
@@ -3753,7 +3777,12 @@ const CommandDesc tree_unfold_cmd = {
             try
             {
                 auto range = option_from_string(Meta::Type<InclusiveBufferRange>{}, range_part);
-                if (range.first <= cursor and cursor <= range.last)
+                // Match cursor inside fold range OR on the line just before it
+                // (the fold header line, e.g. the '{' line)
+                bool in_range = range.first <= cursor and cursor <= range.last;
+                bool on_header = range.first.line > 0 and
+                                 cursor.line == range.first.line - 1;
+                if (in_range or on_header)
                 {
                     found = true;
                     continue;  // skip this fold
@@ -3823,14 +3852,37 @@ const CommandDesc tree_fold_all_cmd = {
                         continue;
 
                     TSNode node = match.captures[c].node;
-                    TSPoint start = ts_node_start_point(node);
-                    TSPoint end = ts_node_end_point(node);
 
-                    if (end.row <= start.row + 1)
-                        continue;
+                    // Prefer folding compound_statement children individually
+                    // so else/catch clauses stay visible
+                    bool found_body = false;
+                    if (strcmp(ts_node_type(node), "compound_statement") != 0)
+                    {
+                        uint32_t cc = ts_node_named_child_count(node);
+                        for (uint32_t ci = 0; ci < cc; ++ci)
+                        {
+                            TSNode child = ts_node_named_child(node, ci);
+                            if (strcmp(ts_node_type(child), "compound_statement") != 0)
+                                continue;
+                            TSPoint cs = ts_node_start_point(child);
+                            TSPoint ce = ts_node_end_point(child);
+                            if (ce.row <= cs.row + 1)
+                                continue;
+                            fold_ranges.push_back({LineCount{(int)cs.row},
+                                                   LineCount{(int)ce.row}});
+                            found_body = true;
+                        }
+                    }
 
-                    fold_ranges.push_back({LineCount{(int)start.row},
-                                           LineCount{(int)end.row}});
+                    if (not found_body)
+                    {
+                        TSPoint start = ts_node_start_point(node);
+                        TSPoint end = ts_node_end_point(node);
+                        if (end.row <= start.row + 1)
+                            continue;
+                        fold_ranges.push_back({LineCount{(int)start.row},
+                                               LineCount{(int)end.row}});
+                    }
                 }
             }
 
@@ -4689,6 +4741,10 @@ const CommandDesc tree_sitter_scopes_cmd = {
         ensure_syntax_tree(buffer, syntax_tree);
 
         auto cursor = context.selections().main().cursor();
+        auto& byte_index = syntax_tree.byte_index();
+        uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+        // Build root tree scope chain
         TSNode node = find_node_at_cursor(syntax_tree, cursor);
         if (ts_node_is_null(node))
             throw runtime_error("no AST node at cursor");
@@ -4708,8 +4764,54 @@ const CommandDesc tree_sitter_scopes_cmd = {
             for (int indent = (int)chain.size() - 1 - i; indent > 0; --indent)
                 info += "  ";
             info += chain[i];
-            if (i > 0) info += "\n";
+            info += "\n";
         }
+
+        // Check injection layers for a more specific scope at cursor
+        syntax_tree.detect_injections(buffer);
+        for (auto& layer : syntax_tree.injection_layers())
+        {
+            if (not layer.tree)
+                continue;
+            bool in_layer = false;
+            for (auto& range : layer.ranges)
+            {
+                if (range.start_byte <= cursor_byte and cursor_byte < range.end_byte)
+                {
+                    in_layer = true;
+                    break;
+                }
+            }
+            if (not in_layer)
+                continue;
+
+            TSNode inj_node = ts_node_named_descendant_for_byte_range(
+                ts_tree_root_node(layer.tree), cursor_byte, cursor_byte);
+            if (ts_node_is_null(inj_node))
+                continue;
+
+            Vector<String> inj_chain;
+            TSNode inj_walk = inj_node;
+            while (not ts_node_is_null(inj_walk))
+            {
+                inj_chain.push_back(String{ts_node_type(inj_walk)});
+                inj_walk = ts_node_parent(inj_walk);
+            }
+
+            int base_indent = (int)chain.size();
+            info += format("  [{}]\n", layer.language_name);
+            for (int i = (int)inj_chain.size() - 1; i >= 0; --i)
+            {
+                for (int indent = 0; indent < base_indent + (int)inj_chain.size() - 1 - i; ++indent)
+                    info += "  ";
+                info += inj_chain[i];
+                info += "\n";
+            }
+        }
+
+        // Remove trailing newline
+        if (not info.empty() and info.back() == '\n')
+            info = String{info.substr(0_byte, info.length() - 1)};
 
         if (context.has_client())
             context.client().info_show("Scopes", info, {}, InfoStyle::Prompt);
@@ -4881,6 +4983,131 @@ const CommandDesc tree_sitter_layers_cmd = {
 
         if (context.has_client())
             context.client().info_show("Layers", result, {}, InfoStyle::Prompt);
+    }
+};
+
+const CommandDesc tree_query_cursor_cmd = {
+    "tree-query-cursor",
+    nullptr,
+    "tree-query-cursor: set options with tree-sitter info at cursor (language, node type, in-string, in-comment)",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto cursor = context.selections().main().cursor();
+        auto& byte_index = syntax_tree.byte_index();
+        uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+        // 1. Node type and parent type at cursor
+        TSNode node = find_node_at_cursor(syntax_tree, cursor);
+        String node_type = ts_node_is_null(node) ? "" : ts_node_type(node);
+        String parent_type;
+        if (not ts_node_is_null(node))
+        {
+            TSNode parent = ts_node_parent(node);
+            if (not ts_node_is_null(parent))
+                parent_type = ts_node_type(parent);
+        }
+
+        // 2. Language at cursor (injection-aware — most specific layer)
+        syntax_tree.detect_injections(buffer);
+        String lang = syntax_tree.language_name();
+        auto layers = syntax_tree.injection_layers();
+        uint32_t narrowest_span = UINT32_MAX;
+        for (auto& layer : layers)
+        {
+            for (auto& range : layer.ranges)
+            {
+                if (range.start_byte <= cursor_byte and cursor_byte < range.end_byte)
+                {
+                    uint32_t span = range.end_byte - range.start_byte;
+                    if (span < narrowest_span)
+                    {
+                        narrowest_span = span;
+                        lang = layer.language_name;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 3. Check highlight captures for @string* and @comment* at cursor
+        bool in_string = false;
+        bool in_comment = false;
+
+        // Check root language highlight query
+        auto check_highlights = [&](TSQuery* hq, TSNode root)
+        {
+            if (not hq)
+                return;
+            QueryCursorGuard qcursor;
+            ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
+            ts_query_cursor_set_match_limit(qcursor, 64);
+            ts_query_cursor_exec(qcursor, hq, root);
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    uint32_t len = 0;
+                    const char* name = ts_query_capture_name_for_id(
+                        hq, match.captures[c].index, &len);
+                    StringView cap{name, (ByteCount)len};
+                    // Match @string, @string.special, etc.
+                    if (cap == "string" or (cap.length() >= 7 and
+                        cap.substr(0_byte, 7_byte) == "string."))
+                        in_string = true;
+                    // Match @comment, @comment.line, @comment.block, etc.
+                    if (cap == "comment" or (cap.length() >= 8 and
+                        cap.substr(0_byte, 8_byte) == "comment."))
+                        in_comment = true;
+                }
+            }
+        };
+
+        auto* config = syntax_tree.config();
+        if (config)
+            check_highlights(config->highlight_query(),
+                             ts_tree_root_node(syntax_tree.tree()));
+
+        // Also check injection layers
+        for (auto& layer : layers)
+        {
+            if (not layer.config or not layer.tree)
+                continue;
+            bool cursor_in_layer = false;
+            for (auto& range : layer.ranges)
+            {
+                if (range.start_byte <= cursor_byte and cursor_byte < range.end_byte)
+                {
+                    cursor_in_layer = true;
+                    break;
+                }
+            }
+            if (cursor_in_layer)
+                check_highlights(layer.config->highlight_query(),
+                                 ts_tree_root_node(layer.tree));
+        }
+
+        // Set options
+        auto set_opt = [&](StringView name, StringView value)
+        {
+            Option& opt = context.options().get_local_option(name);
+            opt.set_from_strings(ConstArrayView<String>{String{value}});
+        };
+
+        set_opt("tree_cursor_lang", lang);
+        set_opt("tree_cursor_node_type", node_type);
+        set_opt("tree_cursor_parent_type", parent_type);
+        set_opt("tree_cursor_in_string", in_string ? "true" : "false");
+        set_opt("tree_cursor_in_comment", in_comment ? "true" : "false");
     }
 };
 
@@ -5759,17 +5986,28 @@ const CommandDesc tree_sitter_install_cmd = {
                     continue;
                 }
                 // The grammar options are set per-buffer by filetype hooks.
-                // For explicit install, read from current buffer context.
+                // If current buffer doesn't match, temporarily set filetype to trigger hooks.
                 auto& opts = context.options();
                 String cur_lang = opts["tree_sitter_lang"].get<String>();
+                String orig_filetype;
                 if (cur_lang != lang)
-                    throw runtime_error(format("open a '{}' file first, or set tree_sitter_source/rev options", lang));
+                {
+                    orig_filetype = opts["filetype"].get<String>();
+                    CommandManager::instance().execute(
+                        format("set-option buffer filetype {}", lang), context);
+                }
 
                 String source = opts["tree_sitter_source"].get<String>();
                 String rev = opts["tree_sitter_rev"].get<String>();
                 String subpath = opts["tree_sitter_subpath"].get<String>();
+
+                // Restore original filetype if we changed it
+                if (not orig_filetype.empty())
+                    CommandManager::instance().execute(
+                        format("set-option buffer filetype {}", orig_filetype), context);
+
                 if (source.empty() or rev.empty())
-                    throw runtime_error(format("no source defined for grammar '{}'", lang));
+                    throw runtime_error(format("no source/rev defined for grammar '{}' — check tree-sitter-grammars.kak", lang));
 
                 context.print_status({format("installing grammar '{}'...", lang),
                                       context.faces()["Information"]});
@@ -5855,9 +6093,14 @@ const CommandDesc tree_sitter_update_cmd = {
             if (lang.empty())
                 throw runtime_error("no tree-sitter grammar defined for this filetype");
 
-            // Verify buffer has the right grammar options for this language
+            // Temporarily set filetype to trigger hooks if needed
+            String orig_filetype;
             if (cur_lang != lang)
-                throw runtime_error(format("open a '{}' file first to update its grammar", lang));
+            {
+                orig_filetype = opts["filetype"].get<String>();
+                CommandManager::instance().execute(
+                    format("set-option buffer filetype {}", lang), context);
+            }
 
             // Remove existing grammar from config dir to force reinstall
             if (LanguageRegistry::has_instance())
@@ -5870,8 +6113,14 @@ const CommandDesc tree_sitter_update_cmd = {
             String source = opts["tree_sitter_source"].get<String>();
             String rev = opts["tree_sitter_rev"].get<String>();
             String subpath = opts["tree_sitter_subpath"].get<String>();
+
+            // Restore original filetype if we changed it
+            if (not orig_filetype.empty())
+                CommandManager::instance().execute(
+                    format("set-option buffer filetype {}", orig_filetype), context);
+
             if (source.empty() or rev.empty())
-                throw runtime_error(format("no source defined for grammar '{}'", lang));
+                throw runtime_error(format("no source/rev defined for grammar '{}' — check tree-sitter-grammars.kak", lang));
 
             context.print_status({format("updating grammar '{}'...", lang),
                                   context.faces()["Information"]});
@@ -6028,6 +6277,7 @@ void register_commands()
     register_command(tree_sitter_install_list_cmd);
     register_command(tree_sitter_update_cmd);
     register_command(tree_sitter_remove_cmd);
+    register_command(tree_query_cursor_cmd);
 }
 
 }
