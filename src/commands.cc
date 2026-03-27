@@ -5020,7 +5020,19 @@ const CommandDesc tree_symbols_cmd = {
             throw runtime_error("no symbols found in buffer");
 
         if (parser.positional_count() == 0)
-            throw runtime_error("usage: tree-symbols <name>");
+        {
+            // No argument: show all symbols in info popup
+            String info;
+            for (auto& sym : symbols)
+            {
+                if (not info.empty())
+                    info += "\n";
+                info += sym.display;
+            }
+            if (context.has_client())
+                context.client().info_show("Symbols", info, {}, InfoStyle::Prompt);
+            return;
+        }
 
         StringView selected = parser[0];
 
