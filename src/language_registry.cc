@@ -22,6 +22,8 @@ String capture_to_face_name(StringView capture_name)
 
 LanguageConfig::~LanguageConfig()
 {
+    if (m_tags_query)
+        ts_query_delete(m_tags_query);
     if (m_fold_query)
         ts_query_delete(m_fold_query);
     if (m_locals_query)
@@ -52,12 +54,14 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_indent_query(other.m_indent_query),
       m_locals_query(other.m_locals_query),
       m_fold_query(other.m_fold_query),
+      m_tags_query(other.m_tags_query),
       m_highlight_predicates(std::move(other.m_highlight_predicates)),
       m_injection_predicates(std::move(other.m_injection_predicates)),
       m_textobject_predicates(std::move(other.m_textobject_predicates)),
       m_indent_predicates(std::move(other.m_indent_predicates)),
       m_locals_predicates(std::move(other.m_locals_predicates)),
       m_fold_predicates(std::move(other.m_fold_predicates)),
+      m_tags_predicates(std::move(other.m_tags_predicates)),
       m_indent_scopes(std::move(other.m_indent_scopes))
 {
     other.m_language = nullptr;
@@ -70,12 +74,15 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
     other.m_indent_query = nullptr;
     other.m_locals_query = nullptr;
     other.m_fold_query = nullptr;
+    other.m_tags_query = nullptr;
 }
 
 LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
 {
     if (this != &other)
     {
+        if (m_tags_query)
+            ts_query_delete(m_tags_query);
         if (m_fold_query)
             ts_query_delete(m_fold_query);
         if (m_locals_query)
@@ -104,12 +111,14 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_indent_query = other.m_indent_query;
         m_locals_query = other.m_locals_query;
         m_fold_query = other.m_fold_query;
+        m_tags_query = other.m_tags_query;
         m_highlight_predicates = std::move(other.m_highlight_predicates);
         m_injection_predicates = std::move(other.m_injection_predicates);
         m_textobject_predicates = std::move(other.m_textobject_predicates);
         m_indent_predicates = std::move(other.m_indent_predicates);
         m_locals_predicates = std::move(other.m_locals_predicates);
         m_fold_predicates = std::move(other.m_fold_predicates);
+        m_tags_predicates = std::move(other.m_tags_predicates);
         m_indent_scopes = std::move(other.m_indent_scopes);
 
         other.m_language = nullptr;
@@ -122,6 +131,7 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         other.m_indent_query = nullptr;
         other.m_locals_query = nullptr;
         other.m_fold_query = nullptr;
+        other.m_tags_query = nullptr;
     }
     return *this;
 }
@@ -906,6 +916,34 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     catch (runtime_error&)
     {
         // No folds.scm file — that is fine
+    }
+
+    // Load tags query (optional)
+    String tags_path = format("{}/runtime/queries/{}/tags.scm", m_runtime_dir, name);
+    try
+    {
+        String tags_text = read_file(tags_path);
+        if (not tags_text.empty())
+        {
+            uint32_t error_offset = 0;
+            TSQueryError error_type = TSQueryErrorNone;
+            config.m_tags_query = ts_query_new(lang, tags_text.c_str(),
+                                               (uint32_t)(int)tags_text.length(),
+                                               &error_offset, &error_type);
+            if (config.m_tags_query)
+            {
+                config.m_tags_predicates = parse_query_predicates(config.m_tags_query);
+                write_to_debug_buffer(format("tree-sitter: loaded tags for '{}' with {} captures",
+                                             name, ts_query_capture_count(config.m_tags_query)));
+            }
+            else
+                write_to_debug_buffer(format("tree-sitter: tags query error in {}/tags.scm at offset {} type {}",
+                                             name, error_offset, (int)error_type));
+        }
+    }
+    catch (runtime_error&)
+    {
+        // No tags.scm file — that is fine
     }
 
     auto ptr = make_unique_ptr<LanguageConfig>(std::move(config));

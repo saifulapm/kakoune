@@ -4882,6 +4882,238 @@ const CommandDesc tree_sitter_layers_cmd = {
     }
 };
 
+static String word_at_cursor(const Buffer& buffer, const Selection& sel)
+{
+    auto cursor = sel.cursor();
+    auto line = buffer[cursor.line];
+
+    // Find word boundaries
+    int col = (int)cursor.column;
+    int start = col, end = col;
+
+    auto is_word_char = [](char c) {
+        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z')
+            or (c >= '0' and c <= '9') or c == '_';
+    };
+
+    while (start > 0 and is_word_char(line[ByteCount{start - 1}]))
+        start--;
+    while (end < (int)line.length() and is_word_char(line[ByteCount{end}]))
+        end++;
+
+    if (start == end)
+        return {};
+    return String{line.substr(ByteCount{start}, ByteCount{end - start})};
+}
+
+const CommandDesc tree_symbols_cmd = {
+    "tree-symbols",
+    nullptr,
+    "tree-symbols: list all symbol definitions in the buffer",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto* config = syntax_tree.config();
+        if (not config or not config->tags_query())
+            throw runtime_error("no tags query for this buffer's language");
+
+        TSQuery* query = config->tags_query();
+        const auto& preds = config->tags_predicates();
+
+        uint32_t name_cap = find_capture_index(query, "name");
+
+        QueryCursorGuard cursor;
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        struct SymbolEntry
+        {
+            String name;
+            String kind;
+            BufferCoord pos;
+        };
+        Vector<SymbolEntry> symbols;
+
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
+        {
+            if (match.pattern_index < (uint32_t)preds.size()
+                and not preds[(int)match.pattern_index].empty()
+                and not predicates_match(preds[(int)match.pattern_index], match, buffer))
+                continue;
+
+            String sym_name;
+            String sym_kind;
+            BufferCoord sym_pos{};
+            bool has_def = false;
+
+            for (uint16_t c = 0; c < match.capture_count; ++c)
+            {
+                auto& cap = match.captures[c];
+                uint32_t name_len = 0;
+                const char* cap_name = ts_query_capture_name_for_id(query, cap.index, &name_len);
+                StringView cap_sv{cap_name, (ByteCount)name_len};
+
+                if (cap.index == name_cap)
+                {
+                    TSPoint start = ts_node_start_point(cap.node);
+                    TSPoint end = ts_node_end_point(cap.node);
+                    if (start.row == end.row and start.row < (uint32_t)(int)buffer.line_count())
+                    {
+                        auto line = buffer[LineCount{(int)start.row}];
+                        auto len = std::min((uint32_t)(int)line.length(), end.column) - start.column;
+                        sym_name = String{line.substr(ByteCount{(int)start.column}, ByteCount{(int)len})};
+                    }
+                }
+                else if (cap_sv.substr(0_byte, 11_byte) == "definition.")
+                {
+                    sym_kind = String{cap_sv.substr(11_byte)};
+                    sym_pos = {LineCount{(int)ts_node_start_point(cap.node).row},
+                               ByteCount{(int)ts_node_start_point(cap.node).column}};
+                    has_def = true;
+                }
+            }
+
+            if (has_def and not sym_name.empty())
+                symbols.push_back({std::move(sym_name), std::move(sym_kind), sym_pos});
+        }
+
+        if (symbols.empty())
+            throw runtime_error("no symbols found in buffer");
+
+        String info;
+        for (auto& sym : symbols)
+        {
+            if (not info.empty())
+                info += "\n";
+            info += format("{} ({}) :{}", sym.name, sym.kind, sym.pos.line + 1);
+        }
+
+        if (context.has_client())
+            context.client().info_show("Symbols", info, {}, InfoStyle::Prompt);
+    }
+};
+
+const CommandDesc tree_goto_def_cmd = {
+    "tree-goto-def",
+    nullptr,
+    "tree-goto-def [name]: jump to the definition of the symbol under cursor or given name",
+    single_optional_param,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto* config = syntax_tree.config();
+        if (not config or not config->tags_query())
+            throw runtime_error("no tags query for this buffer's language");
+
+        String target;
+        if (parser.positional_count() > 0)
+            target = parser[0];
+        else
+            target = word_at_cursor(buffer, context.selections().main());
+
+        if (target.empty())
+            throw runtime_error("no word under cursor");
+
+        TSQuery* query = config->tags_query();
+        const auto& preds = config->tags_predicates();
+        uint32_t name_cap = find_capture_index(query, "name");
+
+        QueryCursorGuard cursor;
+        ts_query_cursor_set_match_limit(cursor, 256);
+        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+        struct DefEntry
+        {
+            String name;
+            String kind;
+            BufferCoord pos;
+        };
+        Vector<DefEntry> defs;
+
+        TSQueryMatch match;
+        while (ts_query_cursor_next_match(cursor, &match))
+        {
+            if (match.pattern_index < (uint32_t)preds.size()
+                and not preds[(int)match.pattern_index].empty()
+                and not predicates_match(preds[(int)match.pattern_index], match, buffer))
+                continue;
+
+            String sym_name;
+            String sym_kind;
+            BufferCoord sym_pos{};
+            bool has_def = false;
+
+            for (uint16_t c = 0; c < match.capture_count; ++c)
+            {
+                auto& cap = match.captures[c];
+                uint32_t name_len = 0;
+                const char* cap_name_str = ts_query_capture_name_for_id(query, cap.index, &name_len);
+                StringView cap_sv{cap_name_str, (ByteCount)name_len};
+
+                if (cap.index == name_cap)
+                {
+                    TSPoint start = ts_node_start_point(cap.node);
+                    TSPoint end = ts_node_end_point(cap.node);
+                    if (start.row == end.row and start.row < (uint32_t)(int)buffer.line_count())
+                    {
+                        auto line = buffer[LineCount{(int)start.row}];
+                        auto len = std::min((uint32_t)(int)line.length(), end.column) - start.column;
+                        sym_name = String{line.substr(ByteCount{(int)start.column}, ByteCount{(int)len})};
+                    }
+                }
+                else if (cap_sv.substr(0_byte, 11_byte) == "definition.")
+                {
+                    sym_kind = String{cap_sv.substr(11_byte)};
+                    sym_pos = {LineCount{(int)ts_node_start_point(cap.node).row},
+                               ByteCount{(int)ts_node_start_point(cap.node).column}};
+                    has_def = true;
+                }
+            }
+
+            if (has_def and sym_name == target)
+                defs.push_back({std::move(sym_name), std::move(sym_kind), sym_pos});
+        }
+
+        if (defs.empty())
+            throw runtime_error(format("no definition found for '{}'", target));
+
+        if (defs.size() == 1)
+        {
+            context.selections() = SelectionList{buffer, defs[0].pos};
+        }
+        else
+        {
+            // Multiple definitions: jump to first and show all in info
+            context.selections() = SelectionList{buffer, defs[0].pos};
+
+            String info;
+            for (auto& def : defs)
+            {
+                if (not info.empty())
+                    info += "\n";
+                info += format("{} ({}) :{}", def.name, def.kind, def.pos.line + 1);
+            }
+
+            if (context.has_client())
+                context.client().info_show("Definitions", info, {}, InfoStyle::Prompt);
+        }
+    }
+};
+
 void register_commands()
 {
     CommandManager& cm = CommandManager::instance();
@@ -4976,6 +5208,8 @@ void register_commands()
     register_command(tree_sitter_highlight_name_cmd);
     register_command(tree_sitter_subtree_cmd);
     register_command(tree_sitter_layers_cmd);
+    register_command(tree_symbols_cmd);
+    register_command(tree_goto_def_cmd);
 }
 
 }
