@@ -5,6 +5,7 @@
 #include "exception.hh"
 #include "file.hh"
 #include "format.hh"
+#include "ranges.hh"
 #include "regex.hh"
 
 #include <dlfcn.h>
@@ -568,6 +569,84 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
     return true;
 }
 
+// Resolve "; inherits: lang1,lang2" directives by recursively loading
+// parent query content. Matches Helix/tree-house regex:
+//   ;+\s*inherits\s*:?\s*([a-z_,()-]+)\s*
+String LanguageRegistry::resolve_query_inherits(StringView query_text, StringView query_type)
+{
+    String result;
+    for (auto line : query_text | split<StringView>('\n'))
+    {
+        // Check for inherits directive
+        auto it = line.begin();
+        while (it != line.end() and *it == ';')
+            ++it;
+        // Skip whitespace
+        while (it != line.end() and (*it == ' ' or *it == '\t'))
+            ++it;
+
+        StringView rest{it, line.end()};
+        bool is_inherits = false;
+        StringView langs;
+
+        if (rest.length() >= 8 and rest.substr(0_byte, 8_byte) == "inherits")
+        {
+            auto after = rest.begin() + 8;
+            // Skip optional colon and whitespace
+            while (after != rest.end() and (*after == ':' or *after == ' ' or *after == '\t'))
+                ++after;
+            if (after != rest.end())
+            {
+                // Trim trailing whitespace
+                auto end = rest.end();
+                while (end != after and (*(end-1) == ' ' or *(end-1) == '\t' or *(end-1) == '\n' or *(end-1) == '\r'))
+                    --end;
+                langs = StringView{after, end};
+                is_inherits = true;
+            }
+        }
+
+        if (is_inherits)
+        {
+            // Split comma-separated language names and load each
+            for (auto parent : langs | split<StringView>(','))
+            {
+                // Trim whitespace from parent name
+                auto pb = parent.begin();
+                auto pe = parent.end();
+                while (pb != pe and (*pb == ' ' or *pb == '\t')) ++pb;
+                while (pe != pb and (*(pe-1) == ' ' or *(pe-1) == '\t')) --pe;
+                if (pb == pe) continue;
+
+                StringView parent_name{pb, pe};
+                String parent_path = resolve_path(m_config_dir, m_runtime_dir,
+                    format("runtime/queries/{}/{}", parent_name, query_type));
+                try
+                {
+                    String parent_text = read_file(parent_path);
+                    if (not parent_text.empty())
+                    {
+                        // Recursively resolve inherits in parent
+                        result += resolve_query_inherits(parent_text, query_type);
+                        result += '\n';
+                    }
+                }
+                catch (runtime_error&)
+                {
+                    write_to_debug_buffer(format("tree-sitter: inherits '{}' not found for query type '{}'",
+                                                 parent_name, query_type));
+                }
+            }
+        }
+        else
+        {
+            result += line;
+            result += '\n';
+        }
+    }
+    return result;
+}
+
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
     // Try to dlopen the grammar shared library
@@ -632,7 +711,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String query_text;
     try
     {
-        query_text = read_file(query_path);
+        query_text = resolve_query_inherits(read_file(query_path), "highlights.scm");
     }
     catch (runtime_error& err)
     {
@@ -682,7 +761,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String inj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/injections.scm", name));
     try
     {
-        String injection_text = read_file(inj_path);
+        String injection_text = resolve_query_inherits(read_file(inj_path), "injections.scm");
         if (not injection_text.empty())
         {
             uint32_t inj_error_offset = 0;
@@ -781,7 +860,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String textobj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/textobjects.scm", name));
     try
     {
-        String textobj_text = read_file(textobj_path);
+        String textobj_text = resolve_query_inherits(read_file(textobj_path), "textobjects.scm");
         if (not textobj_text.empty())
         {
             uint32_t error_offset = 0;
@@ -809,7 +888,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String indent_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/indents.scm", name));
     try
     {
-        String indent_text = read_file(indent_path);
+        String indent_text = resolve_query_inherits(read_file(indent_path), "indents.scm");
         if (not indent_text.empty())
         {
             uint32_t error_offset = 0;
@@ -882,7 +961,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String locals_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/locals.scm", name));
     try
     {
-        String locals_text = read_file(locals_path);
+        String locals_text = resolve_query_inherits(read_file(locals_path), "locals.scm");
         if (not locals_text.empty())
         {
             uint32_t error_offset = 0;
@@ -910,7 +989,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String folds_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/folds.scm", name));
     try
     {
-        String folds_text = read_file(folds_path);
+        String folds_text = resolve_query_inherits(read_file(folds_path), "folds.scm");
         if (not folds_text.empty())
         {
             uint32_t error_offset = 0;
@@ -938,7 +1017,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     String tags_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/tags.scm", name));
     try
     {
-        String tags_text = read_file(tags_path);
+        String tags_text = resolve_query_inherits(read_file(tags_path), "tags.scm");
         if (not tags_text.empty())
         {
             uint32_t error_offset = 0;

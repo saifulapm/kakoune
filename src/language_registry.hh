@@ -132,6 +132,7 @@ public:
 
 private:
     const LanguageConfig* load_language(StringView name);
+    String resolve_query_inherits(StringView query_text, StringView query_type);
 
     String m_runtime_dir;
     String m_config_dir;
