@@ -87,22 +87,6 @@ public:
 
     const Vector<Optional<IndentScope>>& indent_scopes() const { return m_indent_scopes; }
 
-    enum class SplitJoinPreset { Args, List, Dict, Statement };
-
-    struct SplitJoinRule
-    {
-        String node_type;
-        bool is_redirect = false;
-        // For direct rules:
-        SplitJoinPreset preset = SplitJoinPreset::Args;
-        bool last_separator = false;
-        bool space_in_brackets = false;
-        // For redirects:
-        Vector<String> targets;
-    };
-
-    const Vector<SplitJoinRule>& splitjoin_rules() const { return m_splitjoin_rules; }
-
 private:
     friend class LanguageRegistry;
 
@@ -132,7 +116,6 @@ private:
     PatternPredicates m_tags_predicates;
 
     Vector<Optional<IndentScope>> m_indent_scopes;
-    Vector<SplitJoinRule> m_splitjoin_rules;
 };
 
 class LanguageRegistry : public Singleton<LanguageRegistry>

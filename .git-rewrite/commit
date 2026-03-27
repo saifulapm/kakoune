@@ -1,0 +1,6 @@
+tree 4baefc250cdb1169d58b0760540d893e96dbe6a2
+parent 84ecd41da1368b4f9f20b08dfb5ced57241ec3f3
+author Maxime Coste <mawww@kakoune.org> 1701678152 +1100
+committer Maxime Coste <mawww@kakoune.org> 1701678152 +1100
+
+Fix basename prefix flag to use smartcase eq

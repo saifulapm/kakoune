@@ -1,0 +1,1 @@
+Fix basename prefix flag to use smartcase eq

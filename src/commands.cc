@@ -33,6 +33,7 @@
 #include "shell_manager.hh"
 #include "string.hh"
 #include "language_registry.hh"
+#include "splitjoin.hh"
 #include "syntax_tree.hh"
 #include "user_interface.hh"
 #include "window.hh"
@@ -5186,16 +5187,16 @@ static bool is_bracket(StringView type)
         or type == "{" or type == "}";
 }
 
-// Find a container node using splitjoin config or generic bracket detection
+// Find a container node using splitjoin rules or generic bracket detection
 struct SplitJoinMatch
 {
     TSNode node;
-    const LanguageConfig::SplitJoinRule* rule = nullptr;  // null = generic bracket
+    const SJRule* rule = nullptr;  // null = generic bracket
 };
 
-static SplitJoinMatch find_splitjoin_node(TSNode node, const LanguageConfig* config)
+static SplitJoinMatch find_splitjoin_node(TSNode node, StringView language)
 {
-    const auto& rules = config ? config->splitjoin_rules() : Vector<LanguageConfig::SplitJoinRule>{};
+    auto rules = get_splitjoin_rules(language);
 
     TSNode walk = node;
     while (not ts_node_is_null(walk))
@@ -5205,7 +5206,6 @@ static SplitJoinMatch find_splitjoin_node(TSNode node, const LanguageConfig* con
         {
             StringView type_sv{type};
 
-            // Check config rules
             for (auto& rule : rules)
             {
                 if (rule.node_type != type_sv)
@@ -5213,10 +5213,8 @@ static SplitJoinMatch find_splitjoin_node(TSNode node, const LanguageConfig* con
 
                 if (rule.is_redirect)
                 {
-                    // Search children for target node types
                     for (auto& target : rule.targets)
                     {
-                        // Search recursively for target
                         uint32_t cc = ts_node_child_count(walk);
                         for (uint32_t i = 0; i < cc; ++i)
                         {
@@ -5226,13 +5224,11 @@ static SplitJoinMatch find_splitjoin_node(TSNode node, const LanguageConfig* con
                                 const char* ct = ts_node_type(child);
                                 if (ct and StringView{ct} == target)
                                 {
-                                    // Find the direct rule for this target
                                     for (auto& r2 : rules)
                                     {
                                         if (not r2.is_redirect and r2.node_type == target)
                                             return {child, &r2};
                                     }
-                                    // No direct rule but found node — use generic
                                     return {child, nullptr};
                                 }
                             }
@@ -5277,11 +5273,12 @@ const CommandDesc tree_split_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto* config = syntax_tree.config();
+        auto lang_name = LanguageRegistry::filetype_to_language(
+            context.options()["filetype"].get<String>());
 
         auto cursor_pos = context.selections().main().cursor();
         TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
-        auto match = find_splitjoin_node(node, config);
+        auto match = find_splitjoin_node(node, lang_name);
 
         if (ts_node_is_null(match.node))
             throw runtime_error("no splittable node at cursor");
@@ -5297,14 +5294,9 @@ const CommandDesc tree_split_cmd = {
         if (child_count < 2)
             throw runtime_error("node has no children to split");
 
-        // Determine separator and trailing comma from preset
+        // Determine separator and options from rule
         bool add_trailing_sep = match.rule ? match.rule->last_separator : false;
-        String separator = ",";
-        if (match.rule)
-        {
-            if (match.rule->preset == LanguageConfig::SplitJoinPreset::Statement)
-                separator = ";";
-        }
+        StringView separator = match.rule ? match.rule->separator : ",";
 
         // Get indent
         StringView start_line = buffer[LineCount{(int)start.row}];
@@ -5447,11 +5439,12 @@ const CommandDesc tree_join_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto* config = syntax_tree.config();
+        auto lang_name = LanguageRegistry::filetype_to_language(
+            context.options()["filetype"].get<String>());
 
         auto cursor_pos = context.selections().main().cursor();
         TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
-        auto match = find_splitjoin_node(node, config);
+        auto match = find_splitjoin_node(node, lang_name);
 
         if (ts_node_is_null(match.node))
             throw runtime_error("no joinable node at cursor");
@@ -5467,7 +5460,8 @@ const CommandDesc tree_join_cmd = {
 
         bool space_in = match.rule ? match.rule->space_in_brackets : false;
         bool is_statement = match.rule and
-            match.rule->preset == LanguageConfig::SplitJoinPreset::Statement;
+            match.rule->preset == SJPreset::Statement;
+        StringView force_insert = match.rule ? match.rule->force_insert : "";
 
         // Build joined text
         String result;
@@ -5611,10 +5605,11 @@ const CommandDesc tree_toggle_cmd = {
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto* config = syntax_tree.config();
+        auto lang_name = LanguageRegistry::filetype_to_language(
+            context.options()["filetype"].get<String>());
         auto cursor_pos = context.selections().main().cursor();
         TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
-        auto match = find_splitjoin_node(node, config);
+        auto match = find_splitjoin_node(node, lang_name);
 
         if (ts_node_is_null(match.node))
             throw runtime_error("no splittable/joinable node at cursor");
