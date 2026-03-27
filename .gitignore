@@ -19,5 +19,11 @@ test_*.py
 # Docs/specs
 docs/superpowers/
 
+# User/local config
+.claude/
+kakrc
+tskak
+skills-lock.json
+
 # OS
 .DS_Store
