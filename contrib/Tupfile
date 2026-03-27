@@ -1,0 +1,64 @@
+##
+## Tupfile for kakoune
+## by lenormf
+##
+## How to use:
+## Initialize a tup database in the main directory with `tup init`
+## Create a symlink from `contrib/Tupfile` to `src/Tupfile`
+## Start the build with the `tup` command
+##
+
+.gitignore
+
+debug    = yes
+static   = no
+
+CXX      = g++
+CXXFLAGS = -pedantic -std=c++17 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-address
+CPPFLAGS =
+LDFLAGS  =
+LIBS     =
+
+ifeq ($(debug),yes)
+    CPPFLAGS += -DKAK_DEBUG
+    CXXFLAGS += -g
+    suffix = .debug
+else
+    ifeq ($(debug),no)
+        CXXFLAGS += -O3
+        suffix = .opt
+    else
+        error debug should be either yes or no
+    endif
+endif
+
+ifeq ($(static),yes)
+    PKG_CONFIG_FLAGS += --static
+    LDFLAGS += -static -pthread
+endif
+
+ifneq (@(TUP_PLATFORM),macosx)
+    ifeq (@(TUP_PLATFORM),win32)
+        LIBS += -lncursesw -ldbghelp
+        CPPFLAGS += -D_XOPEN_SOURCE=700
+    else
+        LDFLAGS += -rdynamic
+    endif
+endif
+
+ifeq ($(CXX),clang++)
+    CXXFLAGS += -frelaxed-template-template-args
+endif
+ifeq ($(CXX),g++)
+    CXXFLAGS += -Wno-init-list-lifetime
+endif
+
+!cxx = |> ^ CC %f^ $(CXX) $(CPPFLAGS) $(CXXFLAGS) -MD -MP -MF %O.d -c %f -o %o |>
+!ld = |> ^ LD %o^ $(CXX) $(LDFLAGS) %f $(LIBS) -o %o |>
+!ln = |> ^ LN %o^ ln -sf %f %o |>
+
+: foreach *.cc |> !cxx |> .%B$(suffix).o | .%B$(suffix).d {objs}
+: |> ^ MK %o^ printf "%%s" "namespace Kakoune { const char* version = \"`if [ -f .version ]; then cat .version; elif  [ -d ../.git ]; then git describe --tags HEAD; else echo \"unknown\"; fi`\"; }" > .version.cc.tmp; if cmp -s .version.cc.tmp .version.cc; then rm .version.cc.tmp; else mv .version.cc.tmp .version.cc; fi |> .version.cc
+: .version.cc |> ^ CC %f^ $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c %f -o %o |> %B.o
+: {objs} .version.o |> !ld |> kak$(suffix)
+: kak$(suffix) |> !ln |> kak

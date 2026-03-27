@@ -1,0 +1,15 @@
+# TODO move to Github Actions after https://github.com/actions/runner/issues/385
+freebsd_task:
+    freebsd_instance:
+        image_family: freebsd-14-3
+    matrix:
+        - name: freebsd_clang
+          env:
+              CXX: clang++
+        - name: freebsd_gcc
+          gcc_script: pkg install -y gcc
+          env:
+              CXX: g++
+    test_script: make CXX=$CXX -j$(sysctl -n hw.ncpu) test
+    env:
+        LC_ALL: en_US.UTF-8

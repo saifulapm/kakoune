@@ -1,12 +1,23 @@
-# Build artifacts
-src/.*.d
-src/*.o
-src/*.opt.o
-src/*.debug.o
+# Upstream patterns
+*.o
+*.d
+*.pyc
+*.1-r
+.*.kak.*
+*.tar*
 src/kak
-src/kak.opt
 src/kak.debug
-src/.version.cc
+src/kak.debug.*
+src/kak.opt
+src/kak.opt.*
+src/.version*
+src/.*.json
+doc/kak.1.gz
+doc/manpages/*.gz
+tags
+GPATH
+GRTAGS
+GTAGS
 
 # Grammar binaries (user-provided)
 runtime/grammars/*.so
