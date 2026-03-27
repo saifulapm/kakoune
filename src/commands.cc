@@ -4906,98 +4906,147 @@ static String word_at_cursor(const Buffer& buffer, const Selection& sel)
     return String{line.substr(ByteCount{start}, ByteCount{end - start})};
 }
 
+struct SymbolEntry
+{
+    String name;
+    String kind;
+    BufferCoord pos;
+    String display;  // "name (kind) :line"
+};
+
+static Vector<SymbolEntry> collect_symbols(const Buffer& buffer, const SyntaxTree& syntax_tree)
+{
+    auto* config = syntax_tree.config();
+    if (not config or not config->tags_query())
+        return {};
+
+    TSQuery* query = config->tags_query();
+    const auto& preds = config->tags_predicates();
+    uint32_t name_cap = find_capture_index(query, "name");
+
+    QueryCursorGuard cursor;
+    ts_query_cursor_set_match_limit(cursor, 256);
+    ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+    Vector<SymbolEntry> symbols;
+
+    TSQueryMatch match;
+    while (ts_query_cursor_next_match(cursor, &match))
+    {
+        if (match.pattern_index < (uint32_t)preds.size()
+            and not preds[(int)match.pattern_index].empty()
+            and not predicates_match(preds[(int)match.pattern_index], match, buffer))
+            continue;
+
+        String sym_name;
+        String sym_kind;
+        BufferCoord sym_pos{};
+        bool has_def = false;
+
+        for (uint16_t c = 0; c < match.capture_count; ++c)
+        {
+            auto& cap = match.captures[c];
+            uint32_t cname_len = 0;
+            const char* cname = ts_query_capture_name_for_id(query, cap.index, &cname_len);
+            StringView cap_sv{cname, (ByteCount)cname_len};
+
+            if (cap.index == name_cap)
+            {
+                TSPoint start = ts_node_start_point(cap.node);
+                TSPoint end = ts_node_end_point(cap.node);
+                if (start.row == end.row and start.row < (uint32_t)(int)buffer.line_count())
+                {
+                    auto line = buffer[LineCount{(int)start.row}];
+                    auto len = std::min((uint32_t)(int)line.length(), end.column) - start.column;
+                    sym_name = String{line.substr(ByteCount{(int)start.column}, ByteCount{(int)len})};
+                }
+            }
+            else if (cap_sv.substr(0_byte, 11_byte) == "definition.")
+            {
+                sym_kind = String{cap_sv.substr(11_byte)};
+                sym_pos = {LineCount{(int)ts_node_start_point(cap.node).row},
+                           ByteCount{(int)ts_node_start_point(cap.node).column}};
+                has_def = true;
+            }
+        }
+
+        if (has_def and not sym_name.empty())
+        {
+            auto display = format("{} ({}) :{}", sym_name, sym_kind, sym_pos.line + 1);
+            symbols.push_back({std::move(sym_name), std::move(sym_kind), sym_pos, std::move(display)});
+        }
+    }
+    return symbols;
+}
+
 const CommandDesc tree_symbols_cmd = {
     "tree-symbols",
     nullptr,
-    "tree-symbols: list all symbol definitions in the buffer",
-    no_params,
+    "tree-symbols [name]: jump to a symbol definition (fuzzy-matched)",
+    single_optional_param,
     CommandFlags::None,
     CommandHelper{},
-    CommandCompleter{},
-    [](const ParametersParser&, Context& context, const ShellContext&)
+    make_completer(
+        menu([](const Context& context, StringView prefix, ByteCount cursor_pos) -> Completions
+        {
+            auto& buffer = context.buffer();
+            auto& syntax_tree = get_syntax_tree(const_cast<Buffer&>(buffer));
+
+            auto symbols = collect_symbols(buffer, syntax_tree);
+            StringView query = prefix.substr(0, cursor_pos);
+
+            Vector<RankedMatch> matches;
+            for (auto& sym : symbols)
+            {
+                if (RankedMatch match{sym.display, query})
+                    matches.push_back(std::move(match));
+            }
+            std::sort(matches.begin(), matches.end());
+
+            CandidateList candidates;
+            for (auto& m : matches)
+                candidates.push_back(m.candidate().str());
+
+            return {0, cursor_pos, std::move(candidates)};
+        })),
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
     {
         auto& buffer = context.buffer();
         auto& syntax_tree = get_syntax_tree(buffer);
         ensure_syntax_tree(buffer, syntax_tree);
 
-        auto* config = syntax_tree.config();
-        if (not config or not config->tags_query())
-            throw runtime_error("no tags query for this buffer's language");
-
-        TSQuery* query = config->tags_query();
-        const auto& preds = config->tags_predicates();
-
-        uint32_t name_cap = find_capture_index(query, "name");
-
-        QueryCursorGuard cursor;
-        ts_query_cursor_set_match_limit(cursor, 256);
-        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
-
-        struct SymbolEntry
-        {
-            String name;
-            String kind;
-            BufferCoord pos;
-        };
-        Vector<SymbolEntry> symbols;
-
-        TSQueryMatch match;
-        while (ts_query_cursor_next_match(cursor, &match))
-        {
-            if (match.pattern_index < (uint32_t)preds.size()
-                and not preds[(int)match.pattern_index].empty()
-                and not predicates_match(preds[(int)match.pattern_index], match, buffer))
-                continue;
-
-            String sym_name;
-            String sym_kind;
-            BufferCoord sym_pos{};
-            bool has_def = false;
-
-            for (uint16_t c = 0; c < match.capture_count; ++c)
-            {
-                auto& cap = match.captures[c];
-                uint32_t name_len = 0;
-                const char* cap_name = ts_query_capture_name_for_id(query, cap.index, &name_len);
-                StringView cap_sv{cap_name, (ByteCount)name_len};
-
-                if (cap.index == name_cap)
-                {
-                    TSPoint start = ts_node_start_point(cap.node);
-                    TSPoint end = ts_node_end_point(cap.node);
-                    if (start.row == end.row and start.row < (uint32_t)(int)buffer.line_count())
-                    {
-                        auto line = buffer[LineCount{(int)start.row}];
-                        auto len = std::min((uint32_t)(int)line.length(), end.column) - start.column;
-                        sym_name = String{line.substr(ByteCount{(int)start.column}, ByteCount{(int)len})};
-                    }
-                }
-                else if (cap_sv.substr(0_byte, 11_byte) == "definition.")
-                {
-                    sym_kind = String{cap_sv.substr(11_byte)};
-                    sym_pos = {LineCount{(int)ts_node_start_point(cap.node).row},
-                               ByteCount{(int)ts_node_start_point(cap.node).column}};
-                    has_def = true;
-                }
-            }
-
-            if (has_def and not sym_name.empty())
-                symbols.push_back({std::move(sym_name), std::move(sym_kind), sym_pos});
-        }
-
+        auto symbols = collect_symbols(buffer, syntax_tree);
         if (symbols.empty())
             throw runtime_error("no symbols found in buffer");
 
-        String info;
+        if (parser.positional_count() == 0)
+            throw runtime_error("usage: tree-symbols <name>");
+
+        StringView selected = parser[0];
+
+        // Find matching symbol by display string
         for (auto& sym : symbols)
         {
-            if (not info.empty())
-                info += "\n";
-            info += format("{} ({}) :{}", sym.name, sym.kind, sym.pos.line + 1);
+            if (sym.display == selected)
+            {
+                context.push_jump();
+                context.selections() = SelectionList{buffer, sym.pos};
+                return;
+            }
         }
 
-        if (context.has_client())
-            context.client().info_show("Symbols", info, {}, InfoStyle::Prompt);
+        // Fallback: match by name prefix
+        for (auto& sym : symbols)
+        {
+            if (sym.name == selected)
+            {
+                context.push_jump();
+                context.selections() = SelectionList{buffer, sym.pos};
+                return;
+            }
+        }
+
+        throw runtime_error(format("no symbol matching '{}'", selected));
     }
 };
 
