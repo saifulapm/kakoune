@@ -1,0 +1,162 @@
+= Tree-sitter
+
+Native tree-sitter integration providing syntax-aware highlighting,
+indentation, text objects, navigation, code folding, and symbol navigation.
+
+== Setup
+
+Tree-sitter requires grammar files and query files for each language:
+
+- Grammar binaries: `$KAKOUNE_RUNTIME/runtime/grammars/<language>.so`
+- Query files: `$KAKOUNE_RUNTIME/runtime/queries/<language>/`
+
+Query files follow Helix/Neovim naming conventions:
+
+- `highlights.scm` — syntax highlighting (required)
+- `indents.scm` — indentation rules
+- `textobjects.scm` — text objects (function, class, parameter, etc.)
+- `locals.scm` — local variable scoping
+- `injections.scm` — embedded language injection
+- `folds.scm` — foldable regions
+- `tags.scm` — symbol definitions for navigation
+
+Tree-sitter is auto-enabled when a filetype is set. To manually control:
+
+-----
+tree-sitter-enable
+tree-sitter-disable
+-----
+
+== Highlighting
+
+Highlights are applied automatically from `highlights.scm`. Capture names
+are converted to face names: `@keyword.function` becomes `ts_keyword_function`.
+All faces are defined in `rc/tools/tree-sitter.kak` and can be customized.
+
+Rainbow bracket coloring is available via the `tree-sitter-rainbow` highlighter.
+
+Local variable scoping from `locals.scm` is also supported — local
+definitions and references are highlighted with `ts_variable`.
+
+== Indentation
+
+When `indents.scm` is available, auto-indent on newline is enabled
+automatically. Manual reindentation is available via:
+
+*tree-indent*::
+    reindent the current selection based on the AST
+
+*tree-indent-newline*::
+    auto-indent the current line (used by the InsertChar hook)
+
+Supported indent captures: `@indent`, `@indent.always`, `@outdent`,
+`@outdent.always`, `@extend`, `@extend.prevent-once`, `@align`, `@anchor`.
+
+The `#set! "scope" "all"` and `#set! "scope" "tail"` properties control
+which lines an indent rule applies to.
+
+== Text Objects
+
+When `textobjects.scm` is available:
+
+*tree-select* <object> <inside|around>::
+    select the smallest text object at cursor
+
+*tree-select-next* <object>::
+    select the next text object after cursor
+
+*tree-select-prev* <object>::
+    select the previous text object before cursor
+
+Common text objects: `function`, `class`, `parameter`, `comment`.
+
+== Navigation
+
+*tree-parent*::
+    move cursor to parent node
+
+*tree-first-child*::
+    move cursor to first child node
+
+*tree-next-sibling*::
+    move cursor to next sibling node
+
+*tree-prev-sibling*::
+    move cursor to previous sibling node
+
+*tree-select-node*::
+    select the AST node at cursor
+
+*tree-expand*::
+    expand selection to parent node
+
+*tree-shrink*::
+    shrink selection to first child node
+
+*tree-select-all* <type>::
+    select all nodes of the given type
+
+*tree-filter* <type>::
+    filter selection to nodes of the given type
+
+== Code Folding
+
+*tree-fold*::
+    fold the AST node at cursor (uses `folds.scm` when available)
+
+*tree-unfold*::
+    unfold at cursor position
+
+*tree-fold-all* [object]::
+    without argument: fold all `@fold` nodes from `folds.scm`;
+    with argument: fold all occurrences of a text object
+
+*tree-unfold-all*::
+    remove all folds
+
+== Symbol Navigation
+
+When `tags.scm` is available:
+
+*tree-symbols* [name]::
+    without argument: show all symbol definitions in info popup;
+    with argument: fuzzy-match and jump to a symbol (with completion)
+
+*tree-goto-def* [name]::
+    jump to the definition of the word under cursor (or given name)
+
+== Debugging
+
+*tree-sitter-scopes*::
+    show the ancestor node chain at cursor
+
+*tree-sitter-highlight-name*::
+    show the highlight capture name at cursor
+
+*tree-sitter-subtree*::
+    show the AST subtree at cursor
+
+*tree-sitter-layers*::
+    show injection language layers
+
+== User Mode
+
+A `tree` user mode is defined with key mappings for common operations.
+To use it, map it to a key:
+
+-----
+map global user t ': enter-user-mode tree<ret>'
+-----
+
+== Supported Predicates
+
+Query files can use the following predicates:
+
+- `#eq?`, `#not-eq?` — string/capture equality
+- `#match?`, `#not-match?` — regex matching
+- `#any-of?`, `#not-any-of?` — set membership
+- `#not-kind-eq?` — node type filtering
+- `#same-line?`, `#not-same-line?` — line position comparison
+- `#one-line?`, `#not-one-line?` — single-line span check
+- `#is?`, `#is-not?` — property predicates
+- `#set!` — property setting (used for indent scope)
