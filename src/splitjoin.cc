@@ -40,7 +40,7 @@ static const SJRule sj_css[] = {
 static const SJRule sj_dart[] = {
     {"list_literal", false, SJPreset::List, true, true, ",", "", {}},
     {"set_or_map_literal", false, SJPreset::Dict, true, true, ",", "", {}},
-    {"block", false, SJPreset::Statement, false, true, "", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", ";", {}},
     {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"formal_parameter_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"static_final_declaration", true, SJPreset::Args, false, false, ",", "", {"list_literal", "set_or_map_literal"}},
@@ -49,7 +49,7 @@ static const SJRule sj_dart[] = {
 
 static const SJRule sj_elixir[] = {
     {"list", false, SJPreset::List, false, false, ",", "", {}},
-    {"map_content", false, SJPreset::List, false, true, ",", "", {}},
+    {"map_content", false, SJPreset::List, false, false, ",", "", {}},
     {"keywords", false, SJPreset::List, false, false, ",", "", {}},
     {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"tuple", false, SJPreset::List, false, false, ",", "", {}},
@@ -62,7 +62,7 @@ static const SJRule sj_go[] = {
     {"parameter_list", false, SJPreset::Args, true, false, ",", "", {}},
     {"argument_list", false, SJPreset::Args, true, false, ",", "", {}},
     {"type_arguments", false, SJPreset::Args, true, false, ",", "", {}},
-    {"block", false, SJPreset::Statement, false, true, "", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", ";", {}},
     {"import_spec", false, SJPreset::Args, false, false, ",", "", {}},
     {"import_spec_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"import_declaration", true, SJPreset::Args, false, false, ",", "", {"import_spec", "import_spec_list"}},
@@ -81,8 +81,8 @@ static const SJRule sj_html[] = {
 static const SJRule sj_java[] = {
     {"argument_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"formal_parameters", false, SJPreset::Args, false, false, ",", "", {}},
-    {"block", false, SJPreset::Statement, false, true, "", "", {}},
-    {"constructor_body", false, SJPreset::Statement, false, true, "", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", ";", {}},
+    {"constructor_body", false, SJPreset::Statement, false, true, "", ";", {}},
     {"array_initializer", false, SJPreset::List, true, true, ",", "", {}},
     {"annotation_argument_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"enum_body", false, SJPreset::Dict, true, true, ",", "", {}},
@@ -103,8 +103,8 @@ static const SJRule sj_javascript[] = {
     {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"named_imports", false, SJPreset::Dict, true, true, ",", "", {}},
     {"export_clause", false, SJPreset::Dict, true, true, ",", "", {}},
-    {"statement_block", false, SJPreset::Statement, false, true, "", "", {}},
-    {"body", false, SJPreset::Statement, false, true, "", "", {}},
+    {"statement_block", false, SJPreset::Statement, false, true, "", ";", {}},
+    {"body", false, SJPreset::Statement, false, true, "", ";", {}},
     {"jsx_opening_element", false, SJPreset::Default, false, false, "", "", {}},
     {"jsx_element", false, SJPreset::Default, false, false, "", "", {}},
     {"jsx_self_closing_element", false, SJPreset::Default, false, false, "", "", {}},
@@ -131,7 +131,7 @@ static const SJRule sj_json[] = {
 static const SJRule sj_julia[] = {
     {"argument_list", false, SJPreset::Args, true, false, ",", "", {}},
     {"vector_expression", false, SJPreset::List, true, false, ",", "", {}},
-    {"matrix_expression", false, SJPreset::Statement, false, false, "", "", {}},
+    {"matrix_expression", false, SJPreset::Statement, false, false, "", ";", {}},
     {"tuple_expression", false, SJPreset::List, true, false, ",", "", {}},
     {"comprehension_expression", false, SJPreset::List, true, false, "", "", {}},
     {"open_tuple", false, SJPreset::Args, true, false, ",", "", {}},
@@ -165,13 +165,13 @@ static const SJRule sj_nix[] = {
     {"list_expression", false, SJPreset::List, true, true, "", "", {}},
     {"binding_set", false, SJPreset::Dict, true, true, "", ";", {}},
     {"formals", false, SJPreset::Args, false, true, ",", "", {}},
-    {"let_expression", false, SJPreset::Default, false, true, ",", "", {}},
+    {"let_expression", false, SJPreset::Default, false, true, "", "", {}},
     {"attrset_expression", true, SJPreset::Args, false, false, ",", "", {"binding_set"}},
 };
 
 static const SJRule sj_perl[] = {
     {"list_expression", false, SJPreset::Statement, false, false, "", "", {}},
-    {"block", false, SJPreset::Statement, false, true, "", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", ";", {}},
     {"array", false, SJPreset::Args, false, false, ",", "", {}},
     {"hash_ref", false, SJPreset::Dict, true, true, ",", "", {}},
     {"array_ref", false, SJPreset::Dict, true, true, ",", "", {}},
@@ -184,7 +184,7 @@ static const SJRule sj_php[] = {
     {"array_creation_expression", false, SJPreset::Dict, true, false, ",", "", {}},
     {"arguments", false, SJPreset::Args, true, false, ",", "", {}},
     {"formal_parameters", false, SJPreset::Args, true, false, ",", "", {}},
-    {"compound_statement", false, SJPreset::Statement, false, true, "", "", {}},
+    {"compound_statement", false, SJPreset::Statement, false, true, "", ";", {}},
     {"assignment_expression", true, SJPreset::Args, false, false, ",", "", {"array_creation_expression", "arguments"}},
     {"if_statement", true, SJPreset::Args, false, false, ",", "", {"compound_statement"}},
     {"else_clause", true, SJPreset::Args, false, false, ",", "", {"compound_statement"}},
