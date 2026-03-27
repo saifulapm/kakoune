@@ -3608,20 +3608,80 @@ const CommandDesc tree_fold_cmd = {
         ensure_syntax_tree(buffer, syntax_tree);
 
         auto& sel = context.selections().main();
-        TSNode node = find_node_at_cursor(syntax_tree, sel.cursor());
+        auto cursor_pos = sel.cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor_pos);
 
-        // Walk up to find a multi-line node suitable for folding
-        while (not ts_node_is_null(node))
+        auto* config = syntax_tree.config();
+
+        // If fold query is available, find the smallest @fold node containing cursor
+        if (config and config->fold_query())
         {
-            TSPoint start = ts_node_start_point(node);
-            TSPoint end = ts_node_end_point(node);
-            if (end.row > start.row + 1)  // spans at least 3 lines
-                break;
-            node = ts_node_parent(node);
-        }
+            TSQuery* fq = config->fold_query();
+            const auto& fold_preds = config->fold_predicates();
+            uint32_t fold_cap = find_capture_index(fq, "fold");
 
-        if (ts_node_is_null(node))
-            throw runtime_error("no foldable node at cursor");
+            QueryCursorGuard qcursor;
+            ts_query_cursor_set_match_limit(qcursor, 256);
+            ts_query_cursor_exec(qcursor, fq, ts_tree_root_node(syntax_tree.tree()));
+
+            // Find smallest @fold node containing cursor
+            TSNode best = {};
+            bool have_best = false;
+            uint32_t best_size = UINT32_MAX;
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                if (match.pattern_index < (uint32_t)fold_preds.size()
+                    and not fold_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(fold_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != fold_cap)
+                        continue;
+                    TSNode n = match.captures[c].node;
+                    TSPoint s = ts_node_start_point(n);
+                    TSPoint e = ts_node_end_point(n);
+                    if (e.row <= s.row)
+                        continue;  // single-line, skip
+                    // Check if cursor is inside this node
+                    BufferCoord begin{LineCount{(int)s.row}, ByteCount{(int)s.column}};
+                    BufferCoord end{LineCount{(int)e.row}, ByteCount{(int)e.column}};
+                    if (begin <= cursor_pos and cursor_pos <= end)
+                    {
+                        uint32_t size = ts_node_end_byte(n) - ts_node_start_byte(n);
+                        if (size < best_size)
+                        {
+                            best = n;
+                            have_best = true;
+                            best_size = size;
+                        }
+                    }
+                }
+            }
+
+            if (have_best)
+                node = best;
+            else
+                throw runtime_error("no foldable node at cursor");
+        }
+        else
+        {
+            // Fallback: walk up to find a multi-line node suitable for folding
+            while (not ts_node_is_null(node))
+            {
+                TSPoint start = ts_node_start_point(node);
+                TSPoint end = ts_node_end_point(node);
+                if (end.row > start.row + 1)  // spans at least 3 lines
+                    break;
+                node = ts_node_parent(node);
+            }
+
+            if (ts_node_is_null(node))
+                throw runtime_error("no foldable node at cursor");
+        }
 
         TSPoint start = ts_node_start_point(node);
         TSPoint end = ts_node_end_point(node);
@@ -3703,8 +3763,8 @@ const CommandDesc tree_unfold_cmd = {
 const CommandDesc tree_fold_all_cmd = {
     "tree-fold-all",
     nullptr,
-    "tree-fold-all <object>: fold all occurrences of a text object",
-    single_param,
+    "tree-fold-all [object]: fold all @fold nodes (folds.scm), or all occurrences of a text object",
+    single_optional_param,
     CommandFlags::None,
     CommandHelper{},
     CommandCompleter{},
@@ -3712,56 +3772,105 @@ const CommandDesc tree_fold_all_cmd = {
     {
         auto& buffer = context.buffer();
         auto& syntax_tree = get_syntax_tree(buffer);
-        ensure_textobject_query(buffer, syntax_tree);
+        ensure_syntax_tree(buffer, syntax_tree);
 
-        auto object_name = parser[0];
-        String capture_name = format("{}.around", object_name);
-
-        auto* query = syntax_tree.config()->textobject_query();
-        uint32_t target = find_capture_index(query, capture_name);
-
-        if (target == UINT32_MAX)
-            throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
-
-        QueryCursorGuard cursor;
-        ts_query_cursor_set_match_limit(cursor, 256);
-        ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
-
-        const auto& to_preds = syntax_tree.config()->textobject_predicates();
-
+        auto* config = syntax_tree.config();
         Vector<String> range_strs;
-        TSQueryMatch match;
-        while (ts_query_cursor_next_match(cursor, &match))
+
+        if (parser.positional_count() == 0)
         {
-            if (match.pattern_index < (uint32_t)to_preds.size()
-                and not to_preds[(int)match.pattern_index].empty()
-                and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
-                continue;
+            // No param: use fold query
+            if (not config or not config->fold_query())
+                throw runtime_error("no fold query for this buffer's language");
 
-            for (uint32_t c = 0; c < match.capture_count; ++c)
+            TSQuery* fq = config->fold_query();
+            const auto& fold_preds = config->fold_predicates();
+            uint32_t fold_cap = find_capture_index(fq, "fold");
+
+            QueryCursorGuard cursor;
+            ts_query_cursor_set_match_limit(cursor, 256);
+            ts_query_cursor_exec(cursor, fq, ts_tree_root_node(syntax_tree.tree()));
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(cursor, &match))
             {
-                if (match.captures[c].index != target)
+                if (match.pattern_index < (uint32_t)fold_preds.size()
+                    and not fold_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(fold_preds[(int)match.pattern_index], match, buffer))
                     continue;
 
-                TSNode node = match.captures[c].node;
-                TSPoint start = ts_node_start_point(node);
-                TSPoint end = ts_node_end_point(node);
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != fold_cap)
+                        continue;
 
-                // Only fold multi-line nodes
-                if (end.row <= start.row + 1)
-                    continue;
+                    TSNode node = match.captures[c].node;
+                    TSPoint start = ts_node_start_point(node);
+                    TSPoint end = ts_node_end_point(node);
 
-                auto first_line = LineCount{(int)start.row};
-                auto last_line = LineCount{(int)end.row};
+                    if (end.row <= start.row + 1)
+                        continue;
 
-                auto fold_spec = build_fold_spec(buffer, first_line, last_line);
-                if (fold_spec)
-                    range_strs.push_back(std::move(*fold_spec));
+                    auto fold_spec = build_fold_spec(buffer,
+                        LineCount{(int)start.row}, LineCount{(int)end.row});
+                    if (fold_spec)
+                        range_strs.push_back(std::move(*fold_spec));
+                }
             }
-        }
 
-        if (range_strs.empty())
-            throw runtime_error(format("no foldable '{}' found in buffer", object_name));
+            if (range_strs.empty())
+                throw runtime_error("no foldable nodes found in buffer");
+        }
+        else
+        {
+            // With param: use textobject query (existing behavior)
+            ensure_textobject_query(buffer, syntax_tree);
+
+            auto object_name = parser[0];
+            String capture_name = format("{}.around", object_name);
+
+            auto* query = config->textobject_query();
+            uint32_t target = find_capture_index(query, capture_name);
+
+            if (target == UINT32_MAX)
+                throw runtime_error(format("no textobject capture '{}' for this language", capture_name));
+
+            QueryCursorGuard cursor;
+            ts_query_cursor_set_match_limit(cursor, 256);
+            ts_query_cursor_exec(cursor, query, ts_tree_root_node(syntax_tree.tree()));
+
+            const auto& to_preds = config->textobject_predicates();
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(cursor, &match))
+            {
+                if (match.pattern_index < (uint32_t)to_preds.size()
+                    and not to_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(to_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
+                for (uint32_t c = 0; c < match.capture_count; ++c)
+                {
+                    if (match.captures[c].index != target)
+                        continue;
+
+                    TSNode node = match.captures[c].node;
+                    TSPoint start = ts_node_start_point(node);
+                    TSPoint end = ts_node_end_point(node);
+
+                    if (end.row <= start.row + 1)
+                        continue;
+
+                    auto fold_spec = build_fold_spec(buffer,
+                        LineCount{(int)start.row}, LineCount{(int)end.row});
+                    if (fold_spec)
+                        range_strs.push_back(std::move(*fold_spec));
+                }
+            }
+
+            if (range_strs.empty())
+                throw runtime_error(format("no foldable '{}' found in buffer", object_name));
+        }
 
         Option& opt = context.options().get_local_option("tree_sitter_folds");
         opt.add_from_strings(ConstArrayView<String>{range_strs});

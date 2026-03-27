@@ -74,12 +74,14 @@ public:
     TSQuery* textobject_query() const { return m_textobject_query; }
     TSQuery* indent_query() const { return m_indent_query; }
     TSQuery* locals_query() const { return m_locals_query; }
+    TSQuery* fold_query() const { return m_fold_query; }
 
     const PatternPredicates& highlight_predicates() const { return m_highlight_predicates; }
     const PatternPredicates& injection_predicates() const { return m_injection_predicates; }
     const PatternPredicates& textobject_predicates() const { return m_textobject_predicates; }
     const PatternPredicates& indent_predicates() const { return m_indent_predicates; }
     const PatternPredicates& locals_predicates() const { return m_locals_predicates; }
+    const PatternPredicates& fold_predicates() const { return m_fold_predicates; }
 
     const Vector<Optional<IndentScope>>& indent_scopes() const { return m_indent_scopes; }
 
@@ -100,12 +102,14 @@ private:
     TSQuery* m_textobject_query = nullptr;
     TSQuery* m_indent_query = nullptr;
     TSQuery* m_locals_query = nullptr;
+    TSQuery* m_fold_query = nullptr;
 
     PatternPredicates m_highlight_predicates;
     PatternPredicates m_injection_predicates;
     PatternPredicates m_textobject_predicates;
     PatternPredicates m_indent_predicates;
     PatternPredicates m_locals_predicates;
+    PatternPredicates m_fold_predicates;
 
     Vector<Optional<IndentScope>> m_indent_scopes;
 };
