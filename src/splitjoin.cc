@@ -152,7 +152,7 @@ static const SJRule sj_lua[] = {
     {"table_constructor", false, SJPreset::Dict, true, true, ",", "", {}},
     {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"parameters", false, SJPreset::Args, false, false, ",", "", {}},
-    {"block", false, SJPreset::Statement, false, true, ",", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", "", {}},
     {"variable_declaration", true, SJPreset::Args, false, false, ",", "", {"table_constructor", "block"}},
     {"assignment_statement", true, SJPreset::Args, false, false, ",", "", {"table_constructor", "block"}},
     {"if_statement", true, SJPreset::Args, false, false, ",", "", {"block"}},
@@ -170,7 +170,7 @@ static const SJRule sj_nix[] = {
 };
 
 static const SJRule sj_perl[] = {
-    {"list_expression", false, SJPreset::Statement, false, true, "", "", {}},
+    {"list_expression", false, SJPreset::Statement, false, false, ",", "", {}},
     {"block", false, SJPreset::Statement, false, true, ",", "", {}},
     {"array", false, SJPreset::Args, false, false, ",", "", {}},
     {"hash_ref", false, SJPreset::Dict, true, true, ",", "", {}},
@@ -210,7 +210,7 @@ static const SJRule sj_python[] = {
     {"pattern_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"tuple_pattern", false, SJPreset::List, false, true, ",", "", {}},
     {"tuple", false, SJPreset::List, true, false, ",", "", {}},
-    {"import_from_statement", false, SJPreset::Args, true, false, ",", "", {}},
+    {"import_from_statement", false, SJPreset::Args, false, false, ",", "", {}},
     {"argument_list", false, SJPreset::Args, false, false, ",", "", {}},
     {"parameters", false, SJPreset::Args, true, false, ",", "", {}},
     {"parenthesized_expression", false, SJPreset::Args, false, false, ",", "", {}},
@@ -297,8 +297,8 @@ static const SJRule sj_starlark[] = {
 
 static const SJRule sj_terraform[] = {
     {"tuple", false, SJPreset::List, true, false, ",", "", {}},
-    {"object", false, SJPreset::Dict, true, true, "", "", {}},
-    {"function_arguments", false, SJPreset::Args, true, false, ",", "", {}},
+    {"object", false, SJPreset::Dict, true, false, "", "", {}},
+    {"function_arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"function_call", true, SJPreset::Args, false, false, ",", "", {"function_arguments"}},
 };
 
@@ -308,7 +308,7 @@ static const SJRule sj_toml[] = {
 
 static const SJRule sj_typst[] = {
     {"content", false, SJPreset::Default, false, false, "", "", {}},
-    {"group", false, SJPreset::Default, false, false, ",", "", {}},
+    {"group", false, SJPreset::Default, true, false, ",", "", {}},
 };
 
 static const SJRule sj_zig[] = {
@@ -317,7 +317,7 @@ static const SJRule sj_zig[] = {
     {"initializer_list", false, SJPreset::List, true, true, ",", "", {}},
     {"struct_declaration", false, SJPreset::List, true, true, ",", "", {}},
     {"enum_declaration", false, SJPreset::List, true, true, ",", "", {}},
-    {"call_expression", false, SJPreset::Args, false, false, ",", "", {}},
+    {"call_expression", false, SJPreset::Args, true, false, ",", "", {}},
 };
 
 // C++ extends C with template support
@@ -345,9 +345,9 @@ static const SJRule sj_haskell[] = {
 
 static const SJRule sj_yaml[] = {
     {"flow_sequence", false, SJPreset::List, false, true, ",", "", {}},
-    {"flow_mapping", false, SJPreset::Dict, false, true, ",", "", {}},
-    {"block_sequence", false, SJPreset::List, false, true, ",", "", {}},
-    {"block_mapping", false, SJPreset::Dict, false, true, ",", "", {}},
+    {"flow_mapping", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"block_sequence", false, SJPreset::List, true, true, ",", "", {}},
+    {"block_mapping", false, SJPreset::Dict, true, true, ",", "", {}},
 };
 
 ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
