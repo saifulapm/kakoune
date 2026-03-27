@@ -50,7 +50,7 @@ static const SJRule sj_dart[] = {
 static const SJRule sj_elixir[] = {
     {"list", false, SJPreset::List, false, false, ",", "", {}},
     {"map_content", false, SJPreset::List, false, true, ",", "", {}},
-    {"keywords", false, SJPreset::List, true, true, ",", "", {}},
+    {"keywords", false, SJPreset::List, false, false, ",", "", {}},
     {"arguments", false, SJPreset::Args, false, false, ",", "", {}},
     {"tuple", false, SJPreset::List, false, false, ",", "", {}},
     {"map", true, SJPreset::Args, false, false, ",", "", {"map_content"}},
@@ -73,9 +73,9 @@ static const SJRule sj_go[] = {
 };
 
 static const SJRule sj_html[] = {
-    {"start_tag", false, SJPreset::Default, false, false, ",", "", {}},
-    {"self_closing_tag", false, SJPreset::Default, false, false, ",", "", {}},
-    {"element", false, SJPreset::Default, false, false, ",", "", {}},
+    {"start_tag", false, SJPreset::Default, false, false, "", "", {}},
+    {"self_closing_tag", false, SJPreset::Default, false, false, "", "", {}},
+    {"element", false, SJPreset::Default, false, false, "", "", {}},
 };
 
 static const SJRule sj_java[] = {
@@ -105,9 +105,9 @@ static const SJRule sj_javascript[] = {
     {"export_clause", false, SJPreset::Dict, true, true, ",", "", {}},
     {"statement_block", false, SJPreset::Statement, false, true, ",", "", {}},
     {"body", false, SJPreset::Statement, false, true, ",", "", {}},
-    {"jsx_opening_element", false, SJPreset::Default, false, false, ",", "", {}},
-    {"jsx_element", false, SJPreset::Default, false, false, ",", "", {}},
-    {"jsx_self_closing_element", false, SJPreset::Default, false, false, ",", "", {}},
+    {"jsx_opening_element", false, SJPreset::Default, false, false, "", "", {}},
+    {"jsx_element", false, SJPreset::Default, false, false, "", "", {}},
+    {"jsx_self_closing_element", false, SJPreset::Default, false, false, "", "", {}},
     {"arrow_function", true, SJPreset::Args, false, false, ",", "", {"body"}},
     {"lexical_declaration", true, SJPreset::Args, false, false, ",", "", {"array", "object"}},
     {"pair", true, SJPreset::Args, false, false, ",", "", {"array", "object"}},
@@ -141,7 +141,7 @@ static const SJRule sj_julia[] = {
 static const SJRule sj_kotlin[] = {
     {"collection_literal", false, SJPreset::Default, false, false, ",", "", {}},
     {"value_arguments", false, SJPreset::Default, false, false, ",", "", {}},
-    {"statements", false, SJPreset::Statement, false, true, ",", ";", {}},
+    {"statements", false, SJPreset::Statement, false, true, "", ";", {}},
     {"function_value_parameters", false, SJPreset::Args, false, false, ",", "", {}},
     {"lambda_literal", true, SJPreset::Args, false, false, ",", "", {"statements"}},
     {"function_body", true, SJPreset::Args, false, false, ",", "", {"statements"}},
@@ -164,17 +164,17 @@ static const SJRule sj_lua[] = {
 static const SJRule sj_nix[] = {
     {"list_expression", false, SJPreset::List, true, true, "", "", {}},
     {"binding_set", false, SJPreset::Dict, true, true, "", ";", {}},
-    {"formals", false, SJPreset::Args, false, true, "", "", {}},
+    {"formals", false, SJPreset::Args, false, true, ",", "", {}},
     {"let_expression", false, SJPreset::Default, false, true, ",", "", {}},
     {"attrset_expression", true, SJPreset::Args, false, false, ",", "", {"binding_set"}},
 };
 
 static const SJRule sj_perl[] = {
-    {"list_expression", false, SJPreset::Statement, false, true, ",", "", {}},
+    {"list_expression", false, SJPreset::Statement, false, true, "", "", {}},
     {"block", false, SJPreset::Statement, false, true, ",", "", {}},
     {"array", false, SJPreset::Args, false, false, ",", "", {}},
-    {"hash_ref", false, SJPreset::Dict, true, false, ",", "", {}},
-    {"array_ref", false, SJPreset::Dict, true, false, ",", "", {}},
+    {"hash_ref", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"array_ref", false, SJPreset::Dict, true, true, ",", "", {}},
     {"anonymous_array_expression", true, SJPreset::Args, false, false, ",", "", {"list_expression"}},
     {"anonymous_hash_expression", true, SJPreset::Args, false, false, ",", "", {"list_expression"}},
     {"variable_declaration", true, SJPreset::Args, false, false, ",", "", {"array", "array_ref", "hash_ref"}},
@@ -201,7 +201,7 @@ static const SJRule sj_php[] = {
 };
 
 static const SJRule sj_pug[] = {
-    {"attributes", false, SJPreset::Default, false, false, ",", "", {}},
+    {"attributes", false, SJPreset::Default, false, false, "", "", {}},
     {"tag", true, SJPreset::Args, false, false, ",", "", {"attributes"}},
 };
 
@@ -249,11 +249,11 @@ static const SJRule sj_ruby[] = {
     {"block", false, SJPreset::Dict, true, true, "", "", {}},
     {"string_array", false, SJPreset::List, false, true, ",", "", {}},
     {"body_statement", false, SJPreset::Statement, false, true, ",", ";", {}},
-    {"if_modifier", false, SJPreset::Default, false, false, ",", "", {}},
-    {"unless_modifier", false, SJPreset::Default, false, false, ",", "", {}},
-    {"conditional", false, SJPreset::Default, false, false, ",", "", {}},
-    {"when", false, SJPreset::Default, false, true, ",", "", {}},
-    {"right", false, SJPreset::Default, false, false, ",", "", {}},
+    {"if_modifier", false, SJPreset::Default, false, false, "", "", {}},
+    {"unless_modifier", false, SJPreset::Default, false, false, "", "", {}},
+    {"conditional", false, SJPreset::Default, false, false, "", "", {}},
+    {"when", false, SJPreset::Default, false, true, "", "", {}},
+    {"right", false, SJPreset::Default, false, false, "", "", {}},
     {"operator_assignment", true, SJPreset::Args, false, false, ",", "", {"right"}},
     {"method", true, SJPreset::Args, false, false, ",", "", {"body_statement"}},
     {"assignment", true, SJPreset::Args, false, false, ",", "", {"array", "hash"}},
@@ -307,7 +307,7 @@ static const SJRule sj_toml[] = {
 };
 
 static const SJRule sj_typst[] = {
-    {"content", false, SJPreset::Default, false, false, ",", "", {}},
+    {"content", false, SJPreset::Default, false, false, "", "", {}},
     {"group", false, SJPreset::Default, false, false, ",", "", {}},
 };
 
