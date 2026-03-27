@@ -41,6 +41,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -5193,6 +5194,20 @@ static bool grammar_exists(StringView lang)
     return stat(config_path.c_str(), &st) == 0 or stat(runtime_path.c_str(), &st) == 0;
 }
 
+// Escape a string for safe use inside single quotes in shell
+static String shell_escape(StringView s)
+{
+    String result;
+    for (auto c : s)
+    {
+        if (c == '\'')
+            result += "'\\''";
+        else
+            result += c;
+    }
+    return result;
+}
+
 static void install_grammar(Context& context, StringView lang, StringView source,
                             StringView rev, StringView subpath)
 {
@@ -5202,6 +5217,17 @@ static void install_grammar(Context& context, StringView lang, StringView source
     auto& reg = LanguageRegistry::instance();
     String grammar_dir = format("{}/runtime/grammars", reg.config_dir());
     String lib_path = format("{}/{}.{}", grammar_dir, lang, dylib_ext);
+
+    auto e_grammar_dir = shell_escape(grammar_dir);
+    auto e_source = shell_escape(source);
+    auto e_rev = shell_escape(rev);
+    auto e_subpath = subpath.empty() ? String{} : shell_escape(subpath);
+    auto e_lib_path = shell_escape(lib_path);
+
+    String macos_flags;
+#ifdef __APPLE__
+    macos_flags = " -undefined dynamic_lookup";
+#endif
 
     String script = format(
         "set -e\n"
@@ -5214,24 +5240,28 @@ static void install_grammar(Context& context, StringView lang, StringView source
         "git fetch --depth 1 origin '{}' >/dev/null 2>&1\n"
         "git checkout FETCH_HEAD >/dev/null 2>&1\n"
         "srcdir=\"$tmpdir/repo{}/src\"\n"
+        "CC=\"${{CC:-cc}}\"\n"
+        "CXX=\"${{CXX:-c++}}\"\n"
         "scanner=\"\"\n"
         "if [ -f \"$srcdir/scanner.cc\" ]; then\n"
-        "    c++ -std=c++14 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.cc\" -o \"$tmpdir/scanner.o\"\n"
+        "    $CXX -std=c++14 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.cc\" -o \"$tmpdir/scanner.o\"\n"
         "    scanner=\"$tmpdir/scanner.o\"\n"
         "elif [ -f \"$srcdir/scanner.c\" ]; then\n"
-        "    cc -std=c11 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.c\" -o \"$tmpdir/scanner.o\"\n"
+        "    $CC -std=c11 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.c\" -o \"$tmpdir/scanner.o\"\n"
         "    scanner=\"$tmpdir/scanner.o\"\n"
         "fi\n"
-        "cc -std=c11 -shared -fPIC -fno-exceptions -I \"$srcdir\" "
+        "$CC -std=c11 -shared -fPIC -fno-exceptions{} -I \"$srcdir\" "
         "-o '{}' \"$srcdir/parser.c\" $scanner\n",
-        grammar_dir, source, rev,
-        subpath.empty() ? "" : format("/{}", subpath),
-        lib_path);
+        e_grammar_dir, e_source, e_rev,
+        e_subpath.empty() ? "" : format("/{}", e_subpath),
+        macos_flags, e_lib_path);
 
     auto [output, status] = ShellManager::instance().eval(script, context, StringView{});
 
     if (status != 0)
         throw runtime_error(format("failed to install grammar '{}': {}", lang, output));
+
+    write_to_debug_buffer(format("tree-sitter: installed grammar '{}'", lang));
 }
 
 const CommandDesc tree_sitter_install_cmd = {
@@ -5322,21 +5352,37 @@ const CommandDesc tree_sitter_install_list_cmd = {
         String config_path = format("{}/runtime/grammars", reg.config_dir());
         String runtime_path = format("{}/runtime/grammars", reg.runtime_dir());
 
-        String info;
-        auto scan_dir = [&](StringView dir) {
-            auto script = format("ls '{}' 2>/dev/null | sed 's/\\.\\(so\\|dylib\\)$//' | sort -u", dir);
-            auto [output, _] = ShellManager::instance().eval(script, context, StringView{});
-            for (auto line : output | split<StringView>('\n'))
+        Vector<String> names;
+        auto scan_dir = [&](StringView dir_path) {
+            DIR* dir = opendir(String{dir_path}.c_str());
+            if (not dir) return;
+            while (auto* entry = readdir(dir))
             {
-                if (line.empty()) continue;
-                if (not info.empty()) info += "\n";
-                info += line;
+                StringView name{entry->d_name};
+                auto dot = find(name, '.');
+                if (dot != name.end())
+                {
+                    StringView ext{dot + 1, name.end()};
+                    if (ext == "so" or ext == "dylib")
+                        names.push_back(String{name.substr(0, (ByteCount)(dot - name.begin()))});
+                }
             }
+            closedir(dir);
         };
 
         scan_dir(config_path);
         scan_dir(runtime_path);
 
+        // Deduplicate and sort
+        std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
+
+        String info;
+        for (auto& name : names)
+        {
+            if (not info.empty()) info += "\n";
+            info += name;
+        }
         if (info.empty())
             info = "(none)";
 
@@ -5363,7 +5409,11 @@ const CommandDesc tree_sitter_update_cmd = {
             if (lang.empty())
                 throw runtime_error("no tree-sitter grammar defined for this filetype");
 
-            // Remove existing grammar to force reinstall
+            // Verify buffer has the right grammar options for this language
+            if (cur_lang != lang)
+                throw runtime_error(format("open a '{}' file first to update its grammar", lang));
+
+            // Remove existing grammar from config dir to force reinstall
             if (LanguageRegistry::has_instance())
             {
                 auto& reg = LanguageRegistry::instance();
@@ -5412,17 +5462,19 @@ const CommandDesc tree_sitter_remove_cmd = {
             String config_path = format("{}/runtime/grammars/{}.{}", reg.config_dir(), lang, dylib_ext);
             String runtime_path = format("{}/runtime/grammars/{}.{}", reg.runtime_dir(), lang, dylib_ext);
 
-            bool removed = false;
             if (unlink(config_path.c_str()) == 0)
-                removed = true;
-            if (unlink(runtime_path.c_str()) == 0)
-                removed = true;
-
-            if (removed)
+            {
                 context.print_status({format("grammar '{}' removed", lang),
                                       context.faces()["Information"]});
+            }
             else
-                throw runtime_error(format("grammar '{}' not installed", lang));
+            {
+                struct stat st;
+                if (stat(runtime_path.c_str(), &st) == 0)
+                    throw runtime_error(format("grammar '{}' is system-installed; remove it manually from {}", lang, runtime_path));
+                else
+                    throw runtime_error(format("grammar '{}' not installed", lang));
+            }
         }
     }
 };

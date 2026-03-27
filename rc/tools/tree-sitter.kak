@@ -186,7 +186,11 @@ set-face global ts_fold comment
 
 # Auto-install grammar on buffer enter if not already available
 hook -group tree-sitter-auto-install global WinSetOption filetype=.+ %{
-    try %{ tree-sitter-install }
+    try %{
+        tree-sitter-install
+    } catch %{
+        echo -debug "tree-sitter: auto-install failed: %val{error}"
+    }
 }
 
 # Code folding support
