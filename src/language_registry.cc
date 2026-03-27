@@ -330,7 +330,7 @@ static void parse_single_predicate(const TSQuery* query,
         pred.capture_id = *cap;
         out.push_back(std::move(pred));
     }
-    else if (name != "set!")
+    else if (name != "set!" and name != "is?" and name != "is-not?")
     {
         String name_s{name};
         if (logged_unknowns.find(name_s) == logged_unknowns.end())
