@@ -53,6 +53,14 @@
 (expansion_type) @keyword.directive
 (expansion) @embedded
 
+; Hook names
+(hook_definition
+  name: (word) @constant)
+
+; Face names
+(set_face
+  name: (word) @variable.other.member)
+
 ; Option names
 (set_option
   name: (word) @variable.other.member)
@@ -60,6 +68,36 @@
   name: (word) @variable.other.member)
 (declare_option
   name: (word) @variable.other.member)
+
+; Module names
+(provide_module
+  name: (word) @module)
+(require_module
+  name: (word) @module)
+
+; Alias names
+(alias_definition
+  name: (word) @variable.other.member)
+(unalias_definition
+  name: (word) @variable.other.member)
+
+; Register names
+(set_register
+  name: (word) @variable.other.member)
+
+; User mode names
+(declare_user_mode
+  name: (word) @constant)
+(enter_user_mode
+  name: (word) @constant)
+
+; Complete-command target name
+(complete_command
+  name: (word) @function)
+
+; Remove-hooks group
+(remove_hooks
+  group: (word) @variable.other.member)
 
 ; Scopes
 (scope) @constant.builtin
