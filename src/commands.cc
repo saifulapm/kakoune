@@ -5240,17 +5240,15 @@ static void install_grammar(Context& context, StringView lang, StringView source
         "git fetch --depth 1 origin '{}' >/dev/null 2>&1\n"
         "git checkout FETCH_HEAD >/dev/null 2>&1\n"
         "srcdir=\"$tmpdir/repo{}/src\"\n"
-        "CC=\"${{CC:-cc}}\"\n"
-        "CXX=\"${{CXX:-c++}}\"\n"
         "scanner=\"\"\n"
         "if [ -f \"$srcdir/scanner.cc\" ]; then\n"
-        "    $CXX -std=c++14 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.cc\" -o \"$tmpdir/scanner.o\"\n"
+        "    c++ -std=c++14 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.cc\" -o \"$tmpdir/scanner.o\"\n"
         "    scanner=\"$tmpdir/scanner.o\"\n"
         "elif [ -f \"$srcdir/scanner.c\" ]; then\n"
-        "    $CC -std=c11 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.c\" -o \"$tmpdir/scanner.o\"\n"
+        "    cc -std=c11 -fPIC -c -I \"$srcdir\" \"$srcdir/scanner.c\" -o \"$tmpdir/scanner.o\"\n"
         "    scanner=\"$tmpdir/scanner.o\"\n"
         "fi\n"
-        "$CC -std=c11 -shared -fPIC -fno-exceptions{} -I \"$srcdir\" "
+        "cc -std=c11 -shared -fPIC -fno-exceptions{} -I \"$srcdir\" "
         "-o '{}' \"$srcdir/parser.c\" $scanner\n",
         e_grammar_dir, e_source, e_rev,
         e_subpath.empty() ? "" : format("/{}", e_subpath),
