@@ -948,7 +948,7 @@ hook global BufSetOption filetype=just %{
 hook global BufSetOption filetype=kak %{
     set-option buffer tree_sitter_lang "kak"
     set-option buffer tree_sitter_source "https://github.com/saifulapm/tree-sitter-kak"
-    set-option buffer tree_sitter_rev "a3ca6b098ddc2bb5e835f82e7e1c3c9bcc0b4fa0"
+    set-option buffer tree_sitter_rev "fd1fe34a305c72df80b5dbe259c0d60dacb0ecfe"
     set-option buffer tree_sitter_subpath ""
 }
 
