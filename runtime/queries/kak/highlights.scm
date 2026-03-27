@@ -28,6 +28,9 @@
 (prompt_command "prompt" @keyword)
 (on_key_command "on-key" @keyword)
 (select_command "select" @keyword)
+(complete_command "complete-command" @keyword)
+(complete_command
+  type: (completion_type) @type.builtin)
 
 ; Generic command names
 (command
