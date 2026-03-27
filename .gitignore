@@ -1,0 +1,23 @@
+# Build artifacts
+src/.*.d
+src/*.o
+src/*.opt.o
+src/*.debug.o
+src/kak
+src/kak.opt
+src/kak.debug
+src/.version.cc
+
+# Grammar binaries (user-provided)
+runtime/grammars/*.so
+runtime/grammars/*.dylib
+
+# Test files
+test_*.rs
+test_*.py
+
+# Docs/specs
+docs/superpowers/
+
+# OS
+.DS_Store
