@@ -718,7 +718,7 @@ int run_server(StringView session, StringView server_init,
     RegisterManager     register_manager;
     HighlighterRegistry highlighter_registry;
     SharedHighlighters  defined_highlighters;
-    LanguageRegistry    language_registry{runtime_directory()};
+    LanguageRegistry    language_registry{runtime_directory(), config_directory()};
     ClientManager       client_manager;
     BufferManager       buffer_manager;
 

@@ -8,6 +8,7 @@
 #include "regex.hh"
 
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 namespace Kakoune
 {
@@ -136,9 +137,24 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
     return *this;
 }
 
-LanguageRegistry::LanguageRegistry(String runtime_dir)
+LanguageRegistry::LanguageRegistry(String runtime_dir, String config_dir)
     : m_runtime_dir(std::move(runtime_dir))
+    , m_config_dir(std::move(config_dir))
 {
+}
+
+// Resolve a path: check config dir first, fall back to runtime dir
+static String resolve_path(const String& config_dir, const String& runtime_dir,
+                           StringView relative_path)
+{
+    if (not config_dir.empty())
+    {
+        String config_path = format("{}/{}", config_dir, relative_path);
+        struct stat st;
+        if (stat(config_path.c_str(), &st) == 0)
+            return config_path;
+    }
+    return format("{}/{}", runtime_dir, relative_path);
 }
 
 StringView LanguageRegistry::filetype_to_language(StringView filetype)
@@ -555,13 +571,13 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
     // Try to dlopen the grammar shared library
-    String so_path = format("{}/runtime/grammars/{}.so", m_runtime_dir, name);
+    String so_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/grammars/{}.so", name));
     void* handle = dlopen(so_path.c_str(), RTLD_LAZY);
 
 #ifdef __APPLE__
     if (not handle)
     {
-        String dylib_path = format("{}/runtime/grammars/{}.dylib", m_runtime_dir, name);
+        String dylib_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/grammars/{}.dylib", name));
         handle = dlopen(dylib_path.c_str(), RTLD_LAZY);
     }
 #endif
@@ -612,7 +628,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Read the highlights query file
-    String query_path = format("{}/runtime/queries/{}/highlights.scm", m_runtime_dir, name);
+    String query_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/highlights.scm", name));
     String query_text;
     try
     {
@@ -663,7 +679,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     config.m_highlight_predicates = parse_query_predicates(config.m_highlight_query);
 
     // Try to load injections.scm (optional)
-    String inj_path = format("{}/runtime/queries/{}/injections.scm", m_runtime_dir, name);
+    String inj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/injections.scm", name));
     try
     {
         String injection_text = read_file(inj_path);
@@ -762,7 +778,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load textobjects.scm (optional)
-    String textobj_path = format("{}/runtime/queries/{}/textobjects.scm", m_runtime_dir, name);
+    String textobj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/textobjects.scm", name));
     try
     {
         String textobj_text = read_file(textobj_path);
@@ -790,7 +806,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load indents.scm (optional)
-    String indent_path = format("{}/runtime/queries/{}/indents.scm", m_runtime_dir, name);
+    String indent_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/indents.scm", name));
     try
     {
         String indent_text = read_file(indent_path);
@@ -863,7 +879,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load locals.scm (optional)
-    String locals_path = format("{}/runtime/queries/{}/locals.scm", m_runtime_dir, name);
+    String locals_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/locals.scm", name));
     try
     {
         String locals_text = read_file(locals_path);
@@ -891,7 +907,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Load folds query (optional)
-    String folds_path = format("{}/runtime/queries/{}/folds.scm", m_runtime_dir, name);
+    String folds_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/folds.scm", name));
     try
     {
         String folds_text = read_file(folds_path);
@@ -919,7 +935,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Load tags query (optional)
-    String tags_path = format("{}/runtime/queries/{}/tags.scm", m_runtime_dir, name);
+    String tags_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/tags.scm", name));
     try
     {
         String tags_text = read_file(tags_path);

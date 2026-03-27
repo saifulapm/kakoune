@@ -121,7 +121,7 @@ private:
 class LanguageRegistry : public Singleton<LanguageRegistry>
 {
 public:
-    LanguageRegistry(String runtime_dir);
+    LanguageRegistry(String runtime_dir, String config_dir);
 
     const LanguageConfig* get(StringView name);
 
@@ -131,6 +131,7 @@ private:
     const LanguageConfig* load_language(StringView name);
 
     String m_runtime_dir;
+    String m_config_dir;
     // Store UniquePtr so HashMap reallocation doesn't move/invalidate LanguageConfig objects
     HashMap<String, UniquePtr<LanguageConfig>, MemoryDomain::Highlight> m_languages;
 };
