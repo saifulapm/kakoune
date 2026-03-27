@@ -5176,6 +5176,337 @@ const CommandDesc tree_goto_def_cmd = {
     }
 };
 
+// Tree-sitter split/join — like treesj for Neovim
+// Split: expand single-line node to multi-line
+// Join: collapse multi-line node to single-line
+
+static bool is_bracket(StringView type)
+{
+    return type == "(" or type == ")" or type == "[" or type == "]"
+        or type == "{" or type == "}";
+}
+
+// Find a container node (has bracket children) at or above cursor
+static TSNode find_container_node(TSNode node)
+{
+    while (not ts_node_is_null(node))
+    {
+        uint32_t child_count = ts_node_child_count(node);
+        if (child_count >= 2)
+        {
+            // Check if first/last children are brackets
+            TSNode first = ts_node_child(node, 0);
+            TSNode last = ts_node_child(node, child_count - 1);
+            const char* first_type = ts_node_type(first);
+            const char* last_type = ts_node_type(last);
+            if (first_type and last_type and is_bracket(first_type) and is_bracket(last_type))
+                return node;
+        }
+        node = ts_node_parent(node);
+    }
+    return node;
+}
+
+const CommandDesc tree_split_cmd = {
+    "tree-split",
+    nullptr,
+    "tree-split: expand a single-line node to multi-line",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto cursor = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor);
+        TSNode container = find_container_node(node);
+
+        if (ts_node_is_null(container))
+            throw runtime_error("no splittable node at cursor");
+
+        TSPoint start = ts_node_start_point(container);
+        TSPoint end = ts_node_end_point(container);
+
+        // Already multi-line? Nothing to split
+        if (start.row != end.row)
+            throw runtime_error("node already spans multiple lines");
+
+        uint32_t child_count = ts_node_child_count(container);
+        if (child_count < 2)
+            throw runtime_error("node has no children to split");
+
+        // Get indent of the line containing the node
+        StringView start_line = buffer[LineCount{(int)start.row}];
+        ByteCount ws = 0;
+        while (ws < start_line.length() and
+               (start_line[(int)ws] == ' ' or start_line[(int)ws] == '\t'))
+            ws++;
+        String base_indent{start_line.substr(0_byte, ws)};
+
+        ColumnCount indent_width = context.options()["indentwidth"].get<int>();
+        ColumnCount tabstop = context.options()["tabstop"].get<int>();
+        if (indent_width == 0)
+            indent_width = tabstop;
+        String inner_indent = base_indent + String(' ', CharCount{(int)indent_width});
+
+        // Build the split text
+        String result;
+        TSNode first_child = ts_node_child(container, 0);
+        TSNode last_child = ts_node_child(container, child_count - 1);
+
+        // Opening bracket
+        {
+            TSPoint s = ts_node_start_point(first_child);
+            TSPoint e = ts_node_end_point(first_child);
+            StringView line = buffer[LineCount{(int)s.row}];
+            result += line.substr(ByteCount{(int)s.column},
+                                  ByteCount{(int)(e.column - s.column)});
+            result += '\n';
+        }
+
+        // Inner children — one per line
+        for (uint32_t i = 1; i + 1 < child_count; ++i)
+        {
+            TSNode child = ts_node_child(container, i);
+            const char* type = ts_node_type(child);
+
+            // Skip separator nodes (commas) — attach to previous line
+            if (type and (StringView{type} == "," or StringView{type} == ";"))
+            {
+                // Remove trailing newline from result, append separator + newline
+                if (not result.empty() and result.back() == '\n')
+                    result = String{result.substr(0_byte, result.length() - 1)};
+                result += type;
+                result += '\n';
+                continue;
+            }
+
+            // Skip whitespace-only anonymous nodes
+            if (not ts_node_is_named(child))
+            {
+                TSPoint cs = ts_node_start_point(child);
+                TSPoint ce = ts_node_end_point(child);
+                if (cs.row == ce.row)
+                {
+                    StringView line = buffer[LineCount{(int)cs.row}];
+                    auto text = line.substr(ByteCount{(int)cs.column},
+                                            ByteCount{(int)(ce.column - cs.column)});
+                    bool all_ws = true;
+                    for (auto c : text)
+                        if (c != ' ' and c != '\t') { all_ws = false; break; }
+                    if (all_ws)
+                        continue;
+                }
+            }
+
+            // Extract child text
+            TSPoint cs = ts_node_start_point(child);
+            TSPoint ce = ts_node_end_point(child);
+            if (cs.row == ce.row)
+            {
+                StringView line = buffer[LineCount{(int)cs.row}];
+                result += inner_indent;
+                result += line.substr(ByteCount{(int)cs.column},
+                                      ByteCount{(int)(ce.column - cs.column)});
+                result += '\n';
+            }
+            else
+            {
+                // Multi-line child — preserve as-is with indent
+                for (uint32_t row = cs.row; row <= ce.row; ++row)
+                {
+                    StringView line = buffer[LineCount{(int)row}];
+                    uint32_t col_start = (row == cs.row) ? cs.column : 0;
+                    uint32_t col_end = (row == ce.row) ? ce.column : (uint32_t)(int)line.length();
+                    if (col_end > 0 and line[(int)(col_end - 1)] == '\n')
+                        col_end--;
+                    result += inner_indent;
+                    result += line.substr(ByteCount{(int)col_start},
+                                          ByteCount{(int)(col_end - col_start)});
+                    result += '\n';
+                }
+            }
+        }
+
+        // Closing bracket
+        {
+            TSPoint s = ts_node_start_point(last_child);
+            TSPoint e = ts_node_end_point(last_child);
+            StringView line = buffer[LineCount{(int)s.row}];
+            result += base_indent;
+            result += line.substr(ByteCount{(int)s.column},
+                                  ByteCount{(int)(e.column - s.column)});
+        }
+
+        // Replace the node in the buffer
+        BufferCoord begin{LineCount{(int)start.row}, ByteCount{(int)start.column}};
+        BufferCoord end_coord{LineCount{(int)end.row}, ByteCount{(int)end.column}};
+
+        ScopedEdition edition(context);
+        ScopedSelectionEdition selection_edition{context};
+        buffer.replace(begin, end_coord, result);
+    }
+};
+
+const CommandDesc tree_join_cmd = {
+    "tree-join",
+    nullptr,
+    "tree-join: collapse a multi-line node to single line",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto cursor = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor);
+        TSNode container = find_container_node(node);
+
+        if (ts_node_is_null(container))
+            throw runtime_error("no joinable node at cursor");
+
+        TSPoint start = ts_node_start_point(container);
+        TSPoint end = ts_node_end_point(container);
+
+        // Already single-line? Nothing to join
+        if (start.row == end.row)
+            throw runtime_error("node is already single-line");
+
+        uint32_t child_count = ts_node_child_count(container);
+
+        // Build joined text
+        String result;
+        TSNode first_child = ts_node_child(container, 0);
+        TSNode last_child = ts_node_child(container, child_count - 1);
+
+        // Opening bracket
+        {
+            TSPoint s = ts_node_start_point(first_child);
+            TSPoint e = ts_node_end_point(first_child);
+            StringView line = buffer[LineCount{(int)s.row}];
+            result += line.substr(ByteCount{(int)s.column},
+                                  ByteCount{(int)(e.column - s.column)});
+        }
+
+        // Inner children — all on one line
+        bool need_space = false;
+        for (uint32_t i = 1; i + 1 < child_count; ++i)
+        {
+            TSNode child = ts_node_child(container, i);
+            const char* type = ts_node_type(child);
+
+            // Separator: attach directly, next child gets a space
+            if (type and (StringView{type} == "," or StringView{type} == ";"))
+            {
+                result += type;
+                need_space = true;
+                continue;
+            }
+
+            // Skip whitespace-only anonymous nodes
+            if (not ts_node_is_named(child) and type)
+            {
+                StringView tv{type};
+                if (tv == " " or tv == "\n")
+                    continue;
+            }
+
+            // Extract child text (may span multiple lines — collapse)
+            TSPoint cs = ts_node_start_point(child);
+            TSPoint ce = ts_node_end_point(child);
+
+            String child_text;
+            for (uint32_t row = cs.row; row <= ce.row; ++row)
+            {
+                StringView line = buffer[LineCount{(int)row}];
+                uint32_t col_start = (row == cs.row) ? cs.column : 0;
+                uint32_t col_end = (row == ce.row) ? ce.column : (uint32_t)(int)line.length();
+                if (col_end > 0 and line[(int)(col_end - 1)] == '\n')
+                    col_end--;
+
+                // Trim leading whitespace for continuation lines
+                if (row != cs.row)
+                {
+                    while (col_start < col_end and
+                           (line[(int)col_start] == ' ' or line[(int)col_start] == '\t'))
+                        col_start++;
+                }
+
+                if (not child_text.empty() and col_start < col_end)
+                    child_text += ' ';
+                child_text += line.substr(ByteCount{(int)col_start},
+                                          ByteCount{(int)(col_end - col_start)});
+            }
+
+            if (child_text.empty())
+                continue;
+
+            if (need_space or (not result.empty() and result.back() != '('
+                               and result.back() != '[' and result.back() != '{'))
+                result += ' ';
+
+            result += child_text;
+            need_space = false;
+        }
+
+        // Closing bracket
+        {
+            TSPoint s = ts_node_start_point(last_child);
+            TSPoint e = ts_node_end_point(last_child);
+            StringView line = buffer[LineCount{(int)s.row}];
+            result += line.substr(ByteCount{(int)s.column},
+                                  ByteCount{(int)(e.column - s.column)});
+        }
+
+        // Replace the node in the buffer
+        BufferCoord begin{LineCount{(int)start.row}, ByteCount{(int)start.column}};
+        BufferCoord end_coord{LineCount{(int)end.row}, ByteCount{(int)end.column}};
+
+        ScopedEdition edition(context);
+        ScopedSelectionEdition selection_edition{context};
+        buffer.replace(begin, end_coord, result);
+    }
+};
+
+const CommandDesc tree_toggle_cmd = {
+    "tree-toggle",
+    nullptr,
+    "tree-toggle: split single-line node to multi-line or join multi-line to single-line",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext& shell)
+    {
+        auto& buffer = context.buffer();
+        auto& syntax_tree = get_syntax_tree(buffer);
+        ensure_syntax_tree(buffer, syntax_tree);
+
+        auto cursor = context.selections().main().cursor();
+        TSNode node = find_node_at_cursor(syntax_tree, cursor);
+        TSNode container = find_container_node(node);
+
+        if (ts_node_is_null(container))
+            throw runtime_error("no splittable/joinable node at cursor");
+
+        TSPoint start = ts_node_start_point(container);
+        TSPoint end = ts_node_end_point(container);
+
+        if (start.row == end.row)
+            tree_split_cmd.func(parser, context, shell);
+        else
+            tree_join_cmd.func(parser, context, shell);
+    }
+};
+
 // Build the shared library extension for the current platform
 #ifdef __APPLE__
 static constexpr StringView dylib_ext = "dylib";
@@ -5573,6 +5904,9 @@ void register_commands()
     register_command(tree_sitter_layers_cmd);
     register_command(tree_symbols_cmd);
     register_command(tree_goto_def_cmd);
+    register_command(tree_split_cmd);
+    register_command(tree_join_cmd);
+    register_command(tree_toggle_cmd);
     register_command(tree_sitter_install_cmd);
     register_command(tree_sitter_install_list_cmd);
     register_command(tree_sitter_update_cmd);
