@@ -4068,6 +4068,25 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
     if (ts_node_is_null(node))
         return {};
 
+    // Find deepest preceding node (used for query range restriction and @extend)
+    TSNode deepest_preceding = {};
+    bool have_preceding = false;
+    for (uint32_t ci = 0; ci < ts_node_child_count(node); ++ci)
+    {
+        TSNode child = ts_node_child(node, ci);
+        if (ts_node_end_byte(child) <= byte_pos)
+        {
+            deepest_preceding = child;
+            have_preceding = true;
+        }
+    }
+    if (have_preceding)
+    {
+        while (ts_node_child_count(deepest_preceding) > 0)
+            deepest_preceding = ts_node_child(deepest_preceding,
+                ts_node_child_count(deepest_preceding) - 1);
+    }
+
     // Step 2: Collect indent captures into HashMap keyed by node ID
     struct IndentCapture
     {
@@ -4082,6 +4101,17 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
 
     QueryCursorGuard cursor;
     ts_query_cursor_set_match_limit(cursor, 256);
+    // Restrict query to narrow range around cursor (matching Helix init_indent_query)
+    if (have_preceding)
+    {
+        uint32_t range_start = ts_node_end_byte(deepest_preceding);
+        if (range_start > 0) range_start--;
+        ts_query_cursor_set_byte_range(cursor, range_start, byte_pos + 1);
+    }
+    else
+    {
+        ts_query_cursor_set_byte_range(cursor, byte_pos, byte_pos + 1);
+    }
     ts_query_cursor_exec(cursor, query, root);
 
     TSQueryMatch match;
@@ -4198,30 +4228,10 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
         }
     }
 
-    // Step 2b: Find deepest preceding node and apply @extend logic
-    // (matching Helix init_indent_query lines 832-847 and extend_nodes lines 745-809)
-    if (not extend_captures.empty())
+    // Step 2b: Apply @extend logic using deepest preceding node
+    // (matching Helix extend_nodes lines 745-809)
+    if (not extend_captures.empty() and have_preceding)
     {
-        // Find deepest preceding: the last child of `node` that ends before byte_pos,
-        // then descend to its deepest last descendant
-        TSNode deepest_preceding = {};
-        bool have_preceding = false;
-        for (uint32_t ci = 0; ci < ts_node_child_count(node); ++ci)
-        {
-            TSNode child = ts_node_child(node, ci);
-            if (ts_node_end_byte(child) <= byte_pos)
-            {
-                deepest_preceding = child;
-                have_preceding = true;
-            }
-        }
-        if (have_preceding)
-        {
-            // Descend to deepest last child
-            while (ts_node_child_count(deepest_preceding) > 0)
-                deepest_preceding = ts_node_child(deepest_preceding,
-                    ts_node_child_count(deepest_preceding) - 1);
-
             // Walk up from deepest_preceding toward node, checking extend captures
             bool stop_extend = false;
             TSNode walk = deepest_preceding;
@@ -4293,7 +4303,6 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
                     break;
                 walk = parent_walk;
             }
-        }
     }
 
     // Step 3: Walk up parents
