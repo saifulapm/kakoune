@@ -270,8 +270,8 @@ static const SJRule sj_rust[] = {
     {"tuple_type", false, SJPreset::Args, true, false, ",", "", {}},
     {"enum_variant_list", false, SJPreset::List, true, true, ",", "", {}},
     {"tuple_expression", false, SJPreset::Args, true, false, ",", "", {}},
-    {"block", false, SJPreset::Statement, false, true, "", "", {}},
-    {"value", false, SJPreset::Statement, false, true, "", "", {}},
+    {"block", false, SJPreset::Statement, false, true, "", ";", {}},
+    {"value", false, SJPreset::Statement, false, true, "", ";", {}},
     {"use_list", false, SJPreset::List, true, true, ",", "", {}},
     {"array_expression", false, SJPreset::List, true, true, ",", "", {}},
     {"parenthesized_expression", false, SJPreset::Args, false, false, ",", "", {}},
@@ -297,8 +297,8 @@ static const SJRule sj_starlark[] = {
 
 static const SJRule sj_terraform[] = {
     {"tuple", false, SJPreset::List, true, false, ",", "", {}},
-    {"object", false, SJPreset::Dict, true, false, "", "", {}},
-    {"function_arguments", false, SJPreset::Args, false, false, ",", "", {}},
+    {"object", false, SJPreset::Dict, true, false, "", ",", {}},
+    {"function_arguments", false, SJPreset::Args, true, false, ",", "", {}},
     {"function_call", true, SJPreset::Args, false, false, ",", "", {"function_arguments"}},
 };
 
@@ -346,8 +346,8 @@ static const SJRule sj_haskell[] = {
 static const SJRule sj_yaml[] = {
     {"flow_sequence", false, SJPreset::List, false, true, ",", "", {}},
     {"flow_mapping", false, SJPreset::Dict, true, true, ",", "", {}},
-    {"block_sequence", false, SJPreset::List, true, true, ",", "", {}},
-    {"block_mapping", false, SJPreset::Dict, true, true, ",", "", {}},
+    {"block_sequence", false, SJPreset::List, true, true, ",", ",", {}},
+    {"block_mapping", false, SJPreset::Dict, true, true, ",", ",", {}},
 };
 
 ConstArrayView<SJRule> get_splitjoin_rules(StringView language)
