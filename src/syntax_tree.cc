@@ -320,6 +320,115 @@ static String node_text(TSNode node, const Buffer& buffer)
     return result;
 }
 
+struct PendingInjection
+{
+    String language_name;
+    Vector<TSRange, MemoryDomain::Highlight> ranges;
+    bool combined;
+};
+
+// Collect injection ranges from a tree using an injection query
+static void collect_injections_from_tree(
+    TSTree* tree,
+    const LanguageConfig* cfg,
+    const Buffer& buffer,
+    Vector<PendingInjection>& pending)
+{
+    if (not cfg or not cfg->injection_query() or not tree)
+        return;
+
+    QueryCursorGuard cursor;
+    if (not cursor.cursor)
+        return;
+
+    ts_query_cursor_set_match_limit(cursor, 256);
+    ts_query_cursor_exec(cursor, cfg->injection_query(), ts_tree_root_node(tree));
+
+    const uint32_t content_capture = cfg->injection_content_capture();
+    const uint32_t language_capture = cfg->injection_language_capture();
+    const auto& patterns = cfg->injection_patterns();
+    const auto& inj_preds = cfg->injection_predicates();
+
+    TSQueryMatch match;
+    while (ts_query_cursor_next_match(cursor, &match))
+    {
+        if (match.pattern_index < (uint32_t)inj_preds.size()
+            and not inj_preds[(int)match.pattern_index].empty()
+            and not predicates_match(inj_preds[(int)match.pattern_index], match, buffer))
+            continue;
+
+        TSNode content_node = {};
+        bool has_content = false;
+        String lang_name;
+
+        for (uint16_t i = 0; i < match.capture_count; ++i)
+        {
+            const TSQueryCapture& cap = match.captures[i];
+            if (cap.index == content_capture)
+            {
+                content_node = cap.node;
+                has_content = true;
+            }
+            else if (cap.index == language_capture)
+            {
+                lang_name = node_text(cap.node, buffer);
+            }
+        }
+
+        if (not has_content)
+            continue;
+
+        if (match.pattern_index < (uint32_t)patterns.size())
+        {
+            const auto& pattern = patterns[(int)match.pattern_index];
+            if (not pattern.language.empty())
+                lang_name = pattern.language;
+        }
+
+        if (lang_name.empty())
+            continue;
+
+        for (auto& c : lang_name)
+            if (c >= 'A' and c <= 'Z')
+                c = c - 'A' + 'a';
+
+        TSRange range{};
+        range.start_point = ts_node_start_point(content_node);
+        range.end_point = ts_node_end_point(content_node);
+        range.start_byte = ts_node_start_byte(content_node);
+        range.end_byte = ts_node_end_byte(content_node);
+
+        if (range.start_byte >= range.end_byte)
+            continue;
+
+        bool is_combined = match.pattern_index < (uint32_t)patterns.size()
+                           and patterns[(int)match.pattern_index].combined;
+
+        bool merged = false;
+        if (is_combined)
+        {
+            for (auto& p : pending)
+            {
+                if (p.combined and p.language_name == lang_name)
+                {
+                    p.ranges.push_back(range);
+                    merged = true;
+                    break;
+                }
+            }
+        }
+
+        if (not merged)
+        {
+            PendingInjection p;
+            p.language_name = std::move(lang_name);
+            p.ranges.push_back(range);
+            p.combined = is_combined;
+            pending.push_back(std::move(p));
+        }
+    }
+}
+
 void SyntaxTree::detect_injections(const Buffer& buffer)
 {
     const auto* cfg = config();
@@ -332,155 +441,77 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
 
     m_injection_layers.clear();
 
-    // Phase 1: Collect all injection ranges from query matches.
-    // IMPORTANT: Do NOT call LanguageRegistry::get() during this phase,
-    // because get() can load new languages which modifies the HashMap
-    // and may invalidate m_config (which points into the HashMap).
-
-    struct PendingInjection
-    {
-        String language_name;
-        Vector<TSRange, MemoryDomain::Highlight> ranges;
-        bool combined;
-    };
-    Vector<PendingInjection, MemoryDomain::Highlight> pending;
-
-    {
-        QueryCursorGuard cursor;
-        if (not cursor.cursor)
-            return;
-
-        ts_query_cursor_set_match_limit(cursor, 256);
-
-        TSNode root = ts_tree_root_node(m_tree);
-        ts_query_cursor_exec(cursor, cfg->injection_query(), root);
-
-        const uint32_t content_capture = cfg->injection_content_capture();
-        const uint32_t language_capture = cfg->injection_language_capture();
-        const auto& patterns = cfg->injection_patterns();
-        const auto& inj_preds = cfg->injection_predicates();
-
-        TSQueryMatch match;
-        while (ts_query_cursor_next_match(cursor, &match))
-        {
-            // Filter by predicates
-            if (match.pattern_index < (uint32_t)inj_preds.size()
-                and not inj_preds[(int)match.pattern_index].empty()
-                and not predicates_match(inj_preds[(int)match.pattern_index], match, buffer))
-                continue;
-
-            TSNode content_node = {};
-            bool has_content = false;
-            String lang_name;
-
-            for (uint16_t i = 0; i < match.capture_count; ++i)
-            {
-                const TSQueryCapture& cap = match.captures[i];
-                if (cap.index == content_capture)
-                {
-                    content_node = cap.node;
-                    has_content = true;
-                }
-                else if (cap.index == language_capture)
-                {
-                    lang_name = node_text(cap.node, buffer);
-                }
-            }
-
-            if (not has_content)
-                continue;
-
-            if (match.pattern_index < (uint32_t)patterns.size())
-            {
-                const auto& pattern = patterns[(int)match.pattern_index];
-                if (not pattern.language.empty())
-                    lang_name = pattern.language;
-            }
-
-            if (lang_name.empty())
-                continue;
-
-            for (auto& c : lang_name)
-                if (c >= 'A' and c <= 'Z')
-                    c = c - 'A' + 'a';
-
-            TSRange range{};
-            range.start_point = ts_node_start_point(content_node);
-            range.end_point = ts_node_end_point(content_node);
-            range.start_byte = ts_node_start_byte(content_node);
-            range.end_byte = ts_node_end_byte(content_node);
-
-            if (range.start_byte >= range.end_byte)
-                continue;
-
-            bool is_combined = match.pattern_index < (uint32_t)patterns.size()
-                               and patterns[(int)match.pattern_index].combined;
-
-            // Check if we can merge with an existing pending entry (same language + combined)
-            bool merged = false;
-            if (is_combined)
-            {
-                for (auto& p : pending)
-                {
-                    if (p.combined and p.language_name == lang_name)
-                    {
-                        p.ranges.push_back(range);
-                        merged = true;
-                        break;
-                    }
-                }
-            }
-
-            if (not merged)
-            {
-                PendingInjection p;
-                p.language_name = std::move(lang_name);
-                p.ranges.push_back(range);
-                p.combined = is_combined;
-                pending.push_back(std::move(p));
-            }
-        }
-
-    }
-
-    // Phase 2: Now that the query cursor is done, load languages and create layers.
-    // It's safe to call LanguageRegistry::get() here.
     if (not LanguageRegistry::has_instance())
         return;
 
-    for (auto& p : pending)
+    // Queue-based recursive injection detection (matches Helix algorithm):
+    // Process root tree first, then each injection layer's tree, discovering
+    // sub-injections until no more are found.
+    struct QueueEntry
     {
-        const auto* inj_config = LanguageRegistry::instance().get(p.language_name);
-        if (not inj_config or not inj_config->language())
-            continue;
+        TSTree* tree;
+        const LanguageConfig* config;
+    };
 
-        InjectionLayer layer;
-        layer.language_name = std::move(p.language_name);
-        layer.config = inj_config;
-        layer.ranges = std::move(p.ranges);
+    Vector<QueueEntry> queue;
+    queue.push_back({m_tree, cfg});
 
-        layer.parser = ts_parser_new();
-        if (not layer.parser)
-            continue;
+    constexpr int max_depth = 8;  // prevent infinite recursion
+    int depth = 0;
 
-        if (not ts_parser_set_language(layer.parser, inj_config->language()))
+    while (not queue.empty() and depth < max_depth)
+    {
+        // Process current queue level
+        Vector<QueueEntry> next_queue;
+
+        for (auto& entry : queue)
         {
-            ts_parser_delete(layer.parser);
-            layer.parser = nullptr;
-            continue;
+            Vector<PendingInjection> pending;
+            collect_injections_from_tree(entry.tree, entry.config, buffer, pending);
+
+            for (auto& p : pending)
+            {
+                const auto* inj_config = LanguageRegistry::instance().get(p.language_name);
+                if (not inj_config or not inj_config->language())
+                    continue;
+
+                InjectionLayer layer;
+                layer.language_name = std::move(p.language_name);
+                layer.config = inj_config;
+                layer.ranges = std::move(p.ranges);
+
+                layer.parser = ts_parser_new();
+                if (not layer.parser)
+                    continue;
+
+                if (not ts_parser_set_language(layer.parser, inj_config->language()))
+                {
+                    ts_parser_delete(layer.parser);
+                    layer.parser = nullptr;
+                    continue;
+                }
+
+                ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
+                                              (uint32_t)layer.ranges.size());
+
+                TSInput input{};
+                input.payload = const_cast<Buffer*>(&buffer);
+                input.read = ts_input_read;
+                input.encoding = TSInputEncodingUTF8;
+
+                layer.tree = ts_parser_parse(layer.parser, nullptr, input);
+                if (layer.tree)
+                {
+                    // Queue this layer for sub-injection detection if it has an injection query
+                    if (inj_config->injection_query())
+                        next_queue.push_back({layer.tree, inj_config});
+                    m_injection_layers.push_back(std::move(layer));
+                }
+            }
         }
 
-        ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
-                                      (uint32_t)layer.ranges.size());
-
-        TSInput input{};
-        input.payload = const_cast<Buffer*>(&buffer);
-        input.read = ts_input_read;
-        input.encoding = TSInputEncodingUTF8;
-
-        layer.tree = ts_parser_parse(layer.parser, nullptr, input);
-        if (layer.tree)
-            m_injection_layers.push_back(std::move(layer));
+        queue = std::move(next_queue);
+        ++depth;
     }
 }
 
