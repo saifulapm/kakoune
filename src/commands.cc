@@ -3600,7 +3600,7 @@ static Optional<String> build_fold_spec(const Buffer& buffer,
                        fold_end.line + 1, fold_end.column + 1);
     rs += "{ts_fold}";
     rs += indent;
-    rs += format("+-- {} {}: {}\n", folded_lines,
+    rs += format("+-- {} {}: {}", folded_lines,
                  folded_lines == 1 ? "line" : "lines", escaped_preview);
     return rs;
 }
