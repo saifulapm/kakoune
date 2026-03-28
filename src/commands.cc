@@ -3100,8 +3100,10 @@ const CommandDesc tree_select_prev_cmd = {
 
         for (auto& sel : selections)
         {
-            auto cursor = sel.cursor();
-            uint32_t cursor_byte = byte_index.byte_offset(cursor);
+            // Use selection start (min of anchor/cursor) so that after
+            // selecting a function, prev finds the one before it
+            auto sel_begin = sel.anchor() < sel.cursor() ? sel.anchor() : sel.cursor();
+            uint32_t sel_begin_byte = byte_index.byte_offset(sel_begin);
 
             ts_query_cursor_exec(qcursor, query, ts_tree_root_node(syntax_tree.tree()));
 
@@ -3125,7 +3127,7 @@ const CommandDesc tree_select_prev_cmd = {
                     TSNode node = match.captures[c].node;
                     uint32_t start = ts_node_start_byte(node);
 
-                    if (start < cursor_byte and start >= best_start)
+                    if (start < sel_begin_byte and start >= best_start)
                     {
                         best_start = start;
                         best_node = node;
