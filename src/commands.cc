@@ -4560,9 +4560,27 @@ const CommandDesc tree_query_cursor_cmd = {
             opt.set_from_strings(ConstArrayView<String>{String{value}});
         };
 
+        // Build ancestor chain: walk up from leaf, collect named node types
+        String ancestors;
+        if (not ts_node_is_null(node))
+        {
+            TSNode walk = node;
+            while (not ts_node_is_null(walk))
+            {
+                if (ts_node_is_named(walk))
+                {
+                    if (not ancestors.empty())
+                        ancestors += ' ';
+                    ancestors += ts_node_type(walk);
+                }
+                walk = ts_node_parent(walk);
+            }
+        }
+
         set_opt("tree_cursor_lang", lang);
         set_opt("tree_cursor_node_type", node_type);
         set_opt("tree_cursor_parent_type", parent_type);
+        set_opt("tree_cursor_ancestors", ancestors);
         set_opt("tree_cursor_in_string", in_string ? "true" : "false");
         set_opt("tree_cursor_in_comment", in_comment ? "true" : "false");
     }

@@ -171,25 +171,14 @@ Options set by `tree-query-cursor`:
 - `tree_cursor_lang` — injection-aware language at cursor (e.g. `javascript` inside `<script>` in HTML)
 - `tree_cursor_node_type` — leaf AST node type (e.g. `string_literal`, `identifier`)
 - `tree_cursor_parent_type` — parent node type (e.g. `function_definition`)
+- `tree_cursor_ancestors` — space-separated chain of named ancestor node types from leaf to root (e.g. `identifier call_expression jsx_element program`)
 - `tree_cursor_in_string` — `true` if cursor is inside a `@string*` highlight capture
 - `tree_cursor_in_comment` — `true` if cursor is inside a `@comment*` highlight capture
 
-Example: injection-aware comment toggle in kakscript:
-
------
-define-command comment-toggle %{
-    tree-query-cursor
-    evaluate-commands %sh{
-        case "$kak_opt_tree_cursor_lang" in
-            javascript|typescript|rust|cpp|c|go|java) echo "comment-line //" ;;
-            python|ruby|bash) echo "comment-line #" ;;
-            html|xml) echo "comment-block <!-- -->" ;;
-            css) echo "comment-block /* */" ;;
-            *) echo "comment-line #" ;;
-        esac
-    }
-}
------
+The `smart-comment` command uses `tree-query-cursor` to detect the injection
+language and AST context, then picks the correct comment style automatically.
+For example, in a `.tsx` file it uses `{/* */}` inside JSX elements but `//`
+in regular code. In an HTML file, it uses `//` inside `<script>` tags.
 
 == Inspection / Debugging
 

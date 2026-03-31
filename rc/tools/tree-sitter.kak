@@ -185,6 +185,7 @@ set-face global ts_rainbow_6 cyan
 declare-option str tree_cursor_lang ""
 declare-option str tree_cursor_node_type ""
 declare-option str tree_cursor_parent_type ""
+declare-option str tree_cursor_ancestors ""
 declare-option str tree_cursor_in_string "false"
 declare-option str tree_cursor_in_comment "false"
 
