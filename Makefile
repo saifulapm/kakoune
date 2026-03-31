@@ -179,7 +179,6 @@ installdirs-debug-no:
 		$(sharedir)/rc \
 		$(sharedir)/colors \
 		$(sharedir)/doc \
-		$(sharedir)/runtime \
 		$(docdir) \
 		$(mandir)
 
@@ -207,8 +206,6 @@ install: src/kak installdirs install-debug-$(debug) install-gzip-man-$(gzip_man)
 	cp doc/pages/*.asciidoc $(sharedir)/doc
 	chmod 0644 $(sharedir)/doc/*.asciidoc
 
-	cp -r runtime/queries $(sharedir)/runtime
-	find $(sharedir)/runtime -type f -exec chmod 0644 {} +
 
 install-gzip-man-yes: gzip-man-yes installdirs
 	cp -f doc/kak.1.gz $(mandir)
@@ -234,4 +231,3 @@ uninstall:
 		$(sharedir) \
 		$(docdir) \
 		$(mandir)/kak.*
-# Note: $(sharedir) already covers runtime/queries
