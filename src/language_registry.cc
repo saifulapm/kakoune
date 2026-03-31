@@ -141,6 +141,7 @@ static String resolve_path(const String& helix_config_dir, const String& helix_r
 
 StringView LanguageRegistry::filetype_to_language(StringView filetype)
 {
+    // Map kakoune filetypes to helix grammar names
     if (filetype == "sh" or filetype == "bash" or filetype == "zsh")
         return "bash";
     if (filetype == "cpp" or filetype == "objc")
@@ -149,6 +150,12 @@ StringView LanguageRegistry::filetype_to_language(StringView filetype)
         return "javascript";
     if (filetype == "typescript" or filetype == "tsx")
         return "tsx";
+    if (filetype == "csharp")
+        return "c-sharp";
+    if (filetype == "tfvars")
+        return "hcl";
+    if (filetype == "racket")
+        return "scheme";
     return filetype;
 }
 
