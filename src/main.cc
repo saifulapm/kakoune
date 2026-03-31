@@ -142,6 +142,20 @@ String config_directory()
     return format("{}/.config/kak", homedir());
 }
 
+String helix_runtime_directory()
+{
+    if (const char* helix_runtime = getenv("HELIX_RUNTIME"))
+        return helix_runtime;
+
+    // Stable Homebrew symlink — survives helix version upgrades
+    constexpr StringView homebrew_path = "/opt/homebrew/opt/helix/libexec/runtime";
+    struct stat st;
+    if (stat(homebrew_path.data(), &st) == 0 and S_ISDIR(st.st_mode))
+        return homebrew_path.str();
+
+    return {};
+}
+
 auto main_sel_first(const SelectionList& selections)
 {
     auto beg = &*selections.begin(), end = &*selections.end();
@@ -718,7 +732,7 @@ int run_server(StringView session, StringView server_init,
     RegisterManager     register_manager;
     HighlighterRegistry highlighter_registry;
     SharedHighlighters  defined_highlighters;
-    LanguageRegistry    language_registry{runtime_directory(), config_directory()};
+    LanguageRegistry    language_registry{helix_runtime_directory(), config_directory()};
     ClientManager       client_manager;
     BufferManager       buffer_manager;
 

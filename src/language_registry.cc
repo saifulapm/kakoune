@@ -25,10 +25,6 @@ String capture_to_face_name(StringView capture_name)
 
 LanguageConfig::~LanguageConfig()
 {
-    if (m_tags_query)
-        ts_query_delete(m_tags_query);
-    if (m_fold_query)
-        ts_query_delete(m_fold_query);
     if (m_locals_query)
         ts_query_delete(m_locals_query);
     if (m_indent_query)
@@ -56,15 +52,11 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_textobject_query(other.m_textobject_query),
       m_indent_query(other.m_indent_query),
       m_locals_query(other.m_locals_query),
-      m_fold_query(other.m_fold_query),
-      m_tags_query(other.m_tags_query),
       m_highlight_predicates(std::move(other.m_highlight_predicates)),
       m_injection_predicates(std::move(other.m_injection_predicates)),
       m_textobject_predicates(std::move(other.m_textobject_predicates)),
       m_indent_predicates(std::move(other.m_indent_predicates)),
       m_locals_predicates(std::move(other.m_locals_predicates)),
-      m_fold_predicates(std::move(other.m_fold_predicates)),
-      m_tags_predicates(std::move(other.m_tags_predicates)),
       m_indent_scopes(std::move(other.m_indent_scopes))
 {
     other.m_language = nullptr;
@@ -76,18 +68,12 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
     other.m_textobject_query = nullptr;
     other.m_indent_query = nullptr;
     other.m_locals_query = nullptr;
-    other.m_fold_query = nullptr;
-    other.m_tags_query = nullptr;
 }
 
 LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
 {
     if (this != &other)
     {
-        if (m_tags_query)
-            ts_query_delete(m_tags_query);
-        if (m_fold_query)
-            ts_query_delete(m_fold_query);
         if (m_locals_query)
             ts_query_delete(m_locals_query);
         if (m_indent_query)
@@ -113,15 +99,11 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_textobject_query = other.m_textobject_query;
         m_indent_query = other.m_indent_query;
         m_locals_query = other.m_locals_query;
-        m_fold_query = other.m_fold_query;
-        m_tags_query = other.m_tags_query;
         m_highlight_predicates = std::move(other.m_highlight_predicates);
         m_injection_predicates = std::move(other.m_injection_predicates);
         m_textobject_predicates = std::move(other.m_textobject_predicates);
         m_indent_predicates = std::move(other.m_indent_predicates);
         m_locals_predicates = std::move(other.m_locals_predicates);
-        m_fold_predicates = std::move(other.m_fold_predicates);
-        m_tags_predicates = std::move(other.m_tags_predicates);
         m_indent_scopes = std::move(other.m_indent_scopes);
 
         other.m_language = nullptr;
@@ -133,30 +115,28 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         other.m_textobject_query = nullptr;
         other.m_indent_query = nullptr;
         other.m_locals_query = nullptr;
-        other.m_fold_query = nullptr;
-        other.m_tags_query = nullptr;
     }
     return *this;
 }
 
-LanguageRegistry::LanguageRegistry(String runtime_dir, String config_dir)
-    : m_runtime_dir(std::move(runtime_dir))
+LanguageRegistry::LanguageRegistry(String helix_runtime_dir, String config_dir)
+    : m_helix_runtime_dir(std::move(helix_runtime_dir))
     , m_config_dir(std::move(config_dir))
 {
 }
 
-// Resolve a path: check config dir first, fall back to runtime dir
-static String resolve_path(const String& config_dir, const String& runtime_dir,
+// Resolve a path: check config dir first, fall back to helix runtime dir
+static String resolve_path(const String& config_dir, const String& helix_runtime_dir,
                            StringView relative_path)
 {
     if (not config_dir.empty())
     {
-        String config_path = format("{}/{}", config_dir, relative_path);
+        String config_path = format("{}/runtime/{}", config_dir, relative_path);
         struct stat st;
         if (stat(config_path.c_str(), &st) == 0)
             return config_path;
     }
-    return format("{}/{}", runtime_dir, relative_path);
+    return format("{}/{}", helix_runtime_dir, relative_path);
 }
 
 StringView LanguageRegistry::filetype_to_language(StringView filetype)
@@ -624,8 +604,8 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                 if (pb == pe) continue;
 
                 StringView parent_name{pb, pe};
-                String parent_path = resolve_path(m_config_dir, m_runtime_dir,
-                    format("runtime/queries/{}/{}", parent_name, query_type));
+                String parent_path = resolve_path(m_config_dir, m_helix_runtime_dir,
+                    format("queries/{}/{}", parent_name, query_type));
                 try
                 {
                     String parent_text = read_file(parent_path);
@@ -642,8 +622,8 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                     // normal (e.g. _javascript has highlights.scm but not
                     // injections.scm) — only warn if the parent directory
                     // itself doesn't exist (likely a typo in the inherits line)
-                    String parent_dir = resolve_path(m_config_dir, m_runtime_dir,
-                        format("runtime/queries/{}", parent_name));
+                    String parent_dir = resolve_path(m_config_dir, m_helix_runtime_dir,
+                        format("queries/{}", parent_name));
                     DIR* dir = opendir(parent_dir.c_str());
                     if (not dir)
                         write_to_debug_buffer(format("tree-sitter: inherits '{}' — no query directory found",
@@ -664,17 +644,16 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
 
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
-    // Try to dlopen the grammar shared library
-    String so_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/grammars/{}.so", name));
+    // Try to dlopen the grammar shared library (helix uses .so on all platforms)
+    String so_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("grammars/{}.so", name));
     void* handle = dlopen(so_path.c_str(), RTLD_LAZY);
 
-#ifdef __APPLE__
+    // Fallback: try .dylib for user-built grammars in config dir
     if (not handle)
     {
-        String dylib_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/grammars/{}.dylib", name));
+        String dylib_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("grammars/{}.dylib", name));
         handle = dlopen(dylib_path.c_str(), RTLD_LAZY);
     }
-#endif
 
     if (not handle)
     {
@@ -684,8 +663,11 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         return nullptr;
     }
 
-    // Look up the grammar function
-    String symbol_name = format("tree_sitter_{}", name);
+    // Look up the grammar function (hyphens in name → underscores in symbol)
+    String symbol_suffix = name.str();
+    for (auto& c : symbol_suffix)
+        if (c == '-') c = '_';
+    String symbol_name = format("tree_sitter_{}", symbol_suffix);
     using GrammarFn = TSLanguage* (*)();
     auto grammar_fn = reinterpret_cast<GrammarFn>(dlsym(handle, symbol_name.c_str()));
     if (not grammar_fn)
@@ -722,7 +704,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Read the highlights query file
-    String query_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/highlights.scm", name));
+    String query_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/highlights.scm", name));
     String query_text;
     try
     {
@@ -773,7 +755,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     config.m_highlight_predicates = parse_query_predicates(config.m_highlight_query);
 
     // Try to load injections.scm (optional)
-    String inj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/injections.scm", name));
+    String inj_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/injections.scm", name));
     try
     {
         String injection_text = resolve_query_inherits(read_file(inj_path), "injections.scm");
@@ -869,7 +851,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load textobjects.scm (optional)
-    String textobj_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/textobjects.scm", name));
+    String textobj_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/textobjects.scm", name));
     try
     {
         String textobj_text = resolve_query_inherits(read_file(textobj_path), "textobjects.scm");
@@ -896,7 +878,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load indents.scm (optional)
-    String indent_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/indents.scm", name));
+    String indent_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/indents.scm", name));
     try
     {
         String indent_text = resolve_query_inherits(read_file(indent_path), "indents.scm");
@@ -969,7 +951,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load locals.scm (optional)
-    String locals_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/locals.scm", name));
+    String locals_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/locals.scm", name));
     try
     {
         String locals_text = resolve_query_inherits(read_file(locals_path), "locals.scm");
@@ -992,58 +974,6 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     catch (runtime_error&)
     {
         // No locals.scm file — that is fine, not all languages have one
-    }
-
-    // Load folds query (optional)
-    String folds_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/folds.scm", name));
-    try
-    {
-        String folds_text = resolve_query_inherits(read_file(folds_path), "folds.scm");
-        if (not folds_text.empty())
-        {
-            uint32_t error_offset = 0;
-            TSQueryError error_type = TSQueryErrorNone;
-            config.m_fold_query = ts_query_new(lang, folds_text.c_str(),
-                                               (uint32_t)(int)folds_text.length(),
-                                               &error_offset, &error_type);
-            if (config.m_fold_query)
-            {
-                config.m_fold_predicates = parse_query_predicates(config.m_fold_query);
-            }
-            else
-                write_to_debug_buffer(format("tree-sitter: folds query error in {}/folds.scm at offset {} type {}",
-                                             name, error_offset, (int)error_type));
-        }
-    }
-    catch (runtime_error&)
-    {
-        // No folds.scm file — that is fine
-    }
-
-    // Load tags query (optional)
-    String tags_path = resolve_path(m_config_dir, m_runtime_dir, format("runtime/queries/{}/tags.scm", name));
-    try
-    {
-        String tags_text = resolve_query_inherits(read_file(tags_path), "tags.scm");
-        if (not tags_text.empty())
-        {
-            uint32_t error_offset = 0;
-            TSQueryError error_type = TSQueryErrorNone;
-            config.m_tags_query = ts_query_new(lang, tags_text.c_str(),
-                                               (uint32_t)(int)tags_text.length(),
-                                               &error_offset, &error_type);
-            if (config.m_tags_query)
-            {
-                config.m_tags_predicates = parse_query_predicates(config.m_tags_query);
-            }
-            else
-                write_to_debug_buffer(format("tree-sitter: tags query error in {}/tags.scm at offset {} type {}",
-                                             name, error_offset, (int)error_type));
-        }
-    }
-    catch (runtime_error&)
-    {
-        // No tags.scm file — that is fine
     }
 
     auto ptr = make_unique_ptr<LanguageConfig>(std::move(config));

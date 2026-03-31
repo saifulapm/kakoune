@@ -181,24 +181,6 @@ set-face global ts_rainbow_4 blue
 set-face global ts_rainbow_5 magenta
 set-face global ts_rainbow_6 cyan
 
-# Fold face — for fold summary lines (inherits from comment, adds italic)
-set-face global ts_fold comment
-
-# Auto-install grammar on buffer enter if not already available
-hook -group tree-sitter-auto-install global WinSetOption filetype=.+ %{
-    try %{
-        tree-sitter-install
-    } catch %{
-        echo -debug "tree-sitter: auto-install failed: %val{error}"
-    }
-}
-
-# Code folding support
-declare-option range-specs tree_sitter_folds
-
-# Sticky context: shows enclosing function/class when scrolled past
-declare-option str tree_context ""
-
 # Cursor query options (set by tree-query-cursor command)
 declare-option str tree_cursor_lang ""
 declare-option str tree_cursor_node_type ""
@@ -209,17 +191,10 @@ declare-option str tree_cursor_in_comment "false"
 # Auto-enable tree-sitter highlighting on filetype change
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
     try %{ add-highlighter window/tree-sitter tree-sitter }
-    try %{ add-highlighter window/tree-sitter-folds replace-ranges tree_sitter_folds }
 }
 
 hook -group tree-sitter-auto global WinSetOption filetype= %{
     try %{ remove-highlighter window/tree-sitter }
-    try %{ remove-highlighter window/tree-sitter-folds }
-}
-
-# Update sticky context on window display and cursor movement
-hook -group tree-sitter-context global NormalIdle .* %{
-    try %{ tree-update-context }
 }
 
 # Catch windows where filetype was set before this script loaded (autoload order)
@@ -228,7 +203,6 @@ hook -group tree-sitter-late-init global WinDisplay .* %{
     evaluate-commands %sh{
         if [ -n "$kak_opt_filetype" ]; then
             printf 'try %%{ add-highlighter window/tree-sitter tree-sitter }\n'
-            printf 'try %%{ add-highlighter window/tree-sitter-folds replace-ranges tree_sitter_folds }\n'
         fi
     }
     remove-hooks global tree-sitter-late-init
@@ -243,35 +217,6 @@ hook -group tree-sitter-indent global WinSetOption filetype=.+ %{
 
 hook -group tree-sitter-indent global WinSetOption filetype= %{
     remove-hooks window tree-sitter-indent
-}
-
-# Install/update all grammars defined in tree-sitter-grammars.kak
-define-command tree-sitter-install-all -docstring 'install all missing tree-sitter grammars' %{
-    evaluate-commands %sh{
-        grammars_kak=$(find "$kak_runtime" "$kak_config" -name tree-sitter-grammars.kak 2>/dev/null | head -1)
-        if [ -z "$grammars_kak" ]; then
-            echo 'fail "tree-sitter-grammars.kak not found"'
-            exit
-        fi
-        grep 'set-option buffer tree_sitter_lang' "$grammars_kak" | sed 's/.*tree_sitter_lang "\([^"]*\)".*/\1/' | sort -u | while read -r lang; do
-            printf 'try %%{ tree-sitter-install %s } catch %%{ echo -debug "tree-sitter: install-all: %s: %%val{error}" }\n' "$lang" "$lang"
-        done
-    }
-}
-
-define-command tree-sitter-update-all -docstring 'update all installed tree-sitter grammars' %{
-    evaluate-commands %sh{
-        grammar_dir="${kak_config}/runtime/grammars"
-        if [ ! -d "$grammar_dir" ]; then
-            echo 'fail "no grammars installed"'
-            exit
-        fi
-        for lib in "$grammar_dir"/*; do
-            [ -f "$lib" ] || continue
-            lang=$(basename "$lib" | sed 's/\.[^.]*$//')
-            printf 'try %%{ tree-sitter-update %s } catch %%{ echo -debug "tree-sitter: update-all: %s: %%val{error}" }\n' "$lang" "$lang"
-        done
-    }
 }
 
 # Tree-sitter text object key mappings
@@ -296,10 +241,6 @@ map global tree e ': tree-expand<ret>' -docstring 'expand selection'
 map global tree E ': tree-shrink<ret>' -docstring 'shrink selection'
 map global tree '*' ': tree-select-all function<ret>' -docstring 'select all functions'
 map global tree '/' ': tree-filter function<ret>' -docstring 'filter to functions'
-map global tree z  ': tree-fold<ret>' -docstring 'fold node'
-map global tree Z  ': tree-unfold<ret>' -docstring 'unfold at cursor'
-map global tree <a-z> ': tree-fold-all function<ret>' -docstring 'fold all functions'
-map global tree <a-Z> ': tree-unfold-all<ret>' -docstring 'unfold all'
 map global tree j  ': tree-toggle<ret>' -docstring 'split/join toggle'
 map global tree J  ': tree-split<ret>' -docstring 'split to multi-line'
 map global tree <a-j> ': tree-join<ret>' -docstring 'join to single-line'

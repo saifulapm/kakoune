@@ -1,75 +1,43 @@
 = Tree-sitter
 
 Native tree-sitter integration providing syntax-aware highlighting,
-indentation, text objects, navigation, code folding, split/join,
-symbol navigation, and AST data exposed to kakscript.
+indentation, text objects, navigation, split/join,
+and AST data exposed to kakscript.
 
-Query files for 245+ languages are bundled from Helix upstream.
-Injection layers are detected recursively (matching Helix's algorithm),
-enabling nested language injection (e.g. kak-into-kak self-injection,
-HTML → JavaScript → regex).
+Query files and pre-built grammars are loaded from Helix's runtime
+directory. Injection layers are detected recursively (matching Helix's
+algorithm), enabling nested language injection (e.g. kak-into-kak
+self-injection, HTML → JavaScript → regex).
 
-== Grammar Management
+== Grammar Loading
 
-Grammars are compiled shared libraries (`.so`/`.dylib`) built from
-tree-sitter grammar source repositories. Grammars are auto-installed
-on first use — when you open a file, if the grammar is not yet compiled,
-it will be fetched and built automatically.
+Grammars are pre-built shared libraries (`.so`) from the Helix editor's
+runtime directory. No manual installation is needed — grammars are loaded
+automatically when you open a file.
 
-*tree-sitter-install* [langs...]::
-    install grammars; without arguments installs for current buffer's
-    language; with arguments installs specific languages (no matching
-    buffer required)
+The runtime directory is resolved in this order:
 
-*tree-sitter-update* [langs...]::
-    re-fetch and rebuild grammars; without arguments updates current
-    buffer's language; with arguments updates specific languages
+1. `HELIX_RUNTIME` environment variable
+2. `/opt/homebrew/opt/helix/libexec/runtime/` (Homebrew stable symlink)
 
-*tree-sitter-remove* <langs...>::
-    remove user-installed grammars
-
-*tree-sitter-install-list*::
-    show all installed grammars
-
-*tree-sitter-install-all*::
-    install all grammars defined in `tree-sitter-grammars.kak`
-
-*tree-sitter-update-all*::
-    update all currently installed grammars
-
-Grammar definitions are in `rc/tools/tree-sitter-grammars.kak`. Each
-language has a filetype hook that sets the source repository and revision:
-
------
-hook global BufSetOption filetype=rust %{
-    set-option buffer tree_sitter_lang "rust"
-    set-option buffer tree_sitter_source "https://github.com/tree-sitter/tree-sitter-rust"
-    set-option buffer tree_sitter_rev "261b20226c04..."
-    set-option buffer tree_sitter_subpath ""
-}
------
-
-To override a grammar source, add your own hook in kakrc (runs after autoload).
+User overrides can be placed in `%val{config}/runtime/grammars/` and
+`%val{config}/runtime/queries/<lang>/` — these take priority over the
+Helix runtime.
 
 == File Locations
 
-Lookup order (config overrides runtime):
+Lookup order (config overrides helix runtime):
 
 1. `%val{config}/runtime/grammars/` and `%val{config}/runtime/queries/<lang>/`
-2. `%val{runtime}/runtime/grammars/` and `%val{runtime}/runtime/queries/<lang>/`
+2. `$HELIX_RUNTIME/grammars/` and `$HELIX_RUNTIME/queries/<lang>/`
 
-Grammars are installed to `%val{config}/runtime/grammars/`.
-Bundled queries ship in `%val{runtime}/runtime/queries/`.
-
-Query files follow Helix/Neovim naming conventions:
+Query files follow Helix naming conventions:
 
 - `highlights.scm` — syntax highlighting (required)
 - `indents.scm` — indentation rules
 - `textobjects.scm` — text objects (function, class, parameter, etc.)
 - `locals.scm` — local variable scoping
 - `injections.scm` — embedded language injection
-- `folds.scm` — foldable regions
-- `tags.scm` — symbol definitions for navigation
 
 == Enabling/Disabling
 
@@ -179,28 +147,6 @@ Common text objects: `function`, `class`, `parameter`, `comment`, `type`.
 *tree-shrink*::
     shrink selection back (exact inverse of expand)
 
-== Code Folding
-
-Folds use `replace-ranges` — the buffer is never modified. When folded,
-the hidden lines are replaced with a summary: `+-- N lines: preview`.
-Folding prefers `compound_statement` body blocks over full statement
-nodes, keeping `else`/`catch` clauses visible.
-
-*tree-fold*::
-    fold the AST node at cursor (uses `folds.scm` when available)
-
-*tree-unfold*::
-    unfold at cursor position (works from the fold header line too)
-
-*tree-fold-all* [object]::
-    without argument: fold all `@fold` nodes from `folds.scm`;
-    with argument: fold all occurrences of a text object
-
-*tree-unfold-all*::
-    remove all folds
-
-The fold face `ts_fold` can be customized.
-
 == Split/Join
 
 Toggle between single-line and multi-line forms (like treesj.nvim):
@@ -213,29 +159,6 @@ Toggle between single-line and multi-line forms (like treesj.nvim):
 
 *tree-toggle*::
     split if single-line, join if multi-line
-
-== Symbol Navigation
-
-When `tags.scm` is available:
-
-*tree-symbols* [name]::
-    without argument: show all symbol definitions in info popup;
-    with argument: fuzzy-match and jump to a symbol (with completion)
-
-*tree-goto-def* [name]::
-    jump to the definition of the word under cursor (or given name)
-
-== Sticky Context
-
-*tree-update-context*::
-    set `%opt{tree_context}` to the enclosing function/class name
-    at the top of the visible window (hooked to `NormalIdle`)
-
-To display in the modeline:
-
------
-set-option global modelinefmt '%opt{tree_context} %val{bufname} ...'
------
 
 == Cursor Query (kakscript integration)
 
@@ -307,8 +230,6 @@ Key bindings:
 | i   | first child
 | ]/[ | next/prev sibling
 | e/E | expand/shrink
-| z/Z | fold/unfold
-| <a-z>/<a-Z> | fold all functions / unfold all
 | j   | split/join toggle
 | J   | split to multi-line
 | <a-j> | join to single-line
