@@ -156,6 +156,13 @@ String helix_runtime_directory()
     return {};
 }
 
+String helix_config_directory()
+{
+    if (StringView xdg_cfg_home = getenv("XDG_CONFIG_HOME"); not xdg_cfg_home.empty())
+        return format("{}/helix/runtime", xdg_cfg_home);
+    return format("{}/.config/helix/runtime", homedir());
+}
+
 auto main_sel_first(const SelectionList& selections)
 {
     auto beg = &*selections.begin(), end = &*selections.end();
@@ -732,7 +739,7 @@ int run_server(StringView session, StringView server_init,
     RegisterManager     register_manager;
     HighlighterRegistry highlighter_registry;
     SharedHighlighters  defined_highlighters;
-    LanguageRegistry    language_registry{helix_runtime_directory(), config_directory()};
+    LanguageRegistry    language_registry{helix_runtime_directory(), helix_config_directory()};
     ClientManager       client_manager;
     BufferManager       buffer_manager;
 

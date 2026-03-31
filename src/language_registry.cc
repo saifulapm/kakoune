@@ -119,19 +119,19 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
     return *this;
 }
 
-LanguageRegistry::LanguageRegistry(String helix_runtime_dir, String config_dir)
+LanguageRegistry::LanguageRegistry(String helix_runtime_dir, String helix_config_dir)
     : m_helix_runtime_dir(std::move(helix_runtime_dir))
-    , m_config_dir(std::move(config_dir))
+    , m_helix_config_dir(std::move(helix_config_dir))
 {
 }
 
-// Resolve a path: check config dir first, fall back to helix runtime dir
-static String resolve_path(const String& config_dir, const String& helix_runtime_dir,
+// Resolve a path: check helix user config first, fall back to helix system runtime
+static String resolve_path(const String& helix_config_dir, const String& helix_runtime_dir,
                            StringView relative_path)
 {
-    if (not config_dir.empty())
+    if (not helix_config_dir.empty())
     {
-        String config_path = format("{}/runtime/{}", config_dir, relative_path);
+        String config_path = format("{}/{}", helix_config_dir, relative_path);
         struct stat st;
         if (stat(config_path.c_str(), &st) == 0)
             return config_path;
@@ -604,7 +604,7 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                 if (pb == pe) continue;
 
                 StringView parent_name{pb, pe};
-                String parent_path = resolve_path(m_config_dir, m_helix_runtime_dir,
+                String parent_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir,
                     format("queries/{}/{}", parent_name, query_type));
                 try
                 {
@@ -622,7 +622,7 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                     // normal (e.g. _javascript has highlights.scm but not
                     // injections.scm) — only warn if the parent directory
                     // itself doesn't exist (likely a typo in the inherits line)
-                    String parent_dir = resolve_path(m_config_dir, m_helix_runtime_dir,
+                    String parent_dir = resolve_path(m_helix_config_dir, m_helix_runtime_dir,
                         format("queries/{}", parent_name));
                     DIR* dir = opendir(parent_dir.c_str());
                     if (not dir)
@@ -645,13 +645,13 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
     // Try to dlopen the grammar shared library (helix uses .so on all platforms)
-    String so_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("grammars/{}.so", name));
+    String so_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.so", name));
     void* handle = dlopen(so_path.c_str(), RTLD_LAZY);
 
     // Fallback: try .dylib for user-built grammars in config dir
     if (not handle)
     {
-        String dylib_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("grammars/{}.dylib", name));
+        String dylib_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.dylib", name));
         handle = dlopen(dylib_path.c_str(), RTLD_LAZY);
     }
 
@@ -704,7 +704,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Read the highlights query file
-    String query_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/highlights.scm", name));
+    String query_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("queries/{}/highlights.scm", name));
     String query_text;
     try
     {
@@ -755,7 +755,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     config.m_highlight_predicates = parse_query_predicates(config.m_highlight_query);
 
     // Try to load injections.scm (optional)
-    String inj_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/injections.scm", name));
+    String inj_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("queries/{}/injections.scm", name));
     try
     {
         String injection_text = resolve_query_inherits(read_file(inj_path), "injections.scm");
@@ -851,7 +851,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load textobjects.scm (optional)
-    String textobj_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/textobjects.scm", name));
+    String textobj_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("queries/{}/textobjects.scm", name));
     try
     {
         String textobj_text = resolve_query_inherits(read_file(textobj_path), "textobjects.scm");
@@ -878,7 +878,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load indents.scm (optional)
-    String indent_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/indents.scm", name));
+    String indent_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("queries/{}/indents.scm", name));
     try
     {
         String indent_text = resolve_query_inherits(read_file(indent_path), "indents.scm");
@@ -951,7 +951,7 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
     }
 
     // Try to load locals.scm (optional)
-    String locals_path = resolve_path(m_config_dir, m_helix_runtime_dir, format("queries/{}/locals.scm", name));
+    String locals_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("queries/{}/locals.scm", name));
     try
     {
         String locals_text = resolve_query_inherits(read_file(locals_path), "locals.scm");

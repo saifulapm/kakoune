@@ -113,21 +113,21 @@ private:
 class LanguageRegistry : public Singleton<LanguageRegistry>
 {
 public:
-    LanguageRegistry(String helix_runtime_dir, String config_dir);
+    LanguageRegistry(String helix_runtime_dir, String helix_config_dir);
 
     const LanguageConfig* get(StringView name);
 
     static StringView filetype_to_language(StringView filetype);
 
     const String& helix_runtime_dir() const { return m_helix_runtime_dir; }
-    const String& config_dir() const { return m_config_dir; }
+    const String& helix_config_dir() const { return m_helix_config_dir; }
 
 private:
     const LanguageConfig* load_language(StringView name);
     String resolve_query_inherits(StringView query_text, StringView query_type);
 
     String m_helix_runtime_dir;
-    String m_config_dir;
+    String m_helix_config_dir;
     // Store UniquePtr so HashMap reallocation doesn't move/invalidate LanguageConfig objects
     HashMap<String, UniquePtr<LanguageConfig>, MemoryDomain::Highlight> m_languages;
 };
