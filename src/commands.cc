@@ -4686,7 +4686,11 @@ const CommandDesc tree_sitter_highlight_cmd = {
             {
                 current_face = face_map[i];
                 if (current_face >= 0)
-                    result += format("{{{}}}", config->capture_faces()[current_face]);
+                {
+                    result += '{';
+                    result += config->capture_faces()[current_face];
+                    result += '}';
+                }
                 else
                     result += "{Default}";
             }
