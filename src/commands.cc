@@ -4586,19 +4586,19 @@ const CommandDesc tree_query_cursor_cmd = {
     }
 };
 
-const CommandDesc tree_cursor_context_cmd = {
-    "tree-cursor-context",
+const CommandDesc tree_cursor_context_autopair_cmd = {
+    "tree-cursor-context-autopair",
     nullptr,
-    "tree-cursor-context: fast check if cursor is in string or comment (for autopair)",
-    no_params,
+    "tree-cursor-context-autopair <pair>: fail if autopair should be suppressed (cursor in comment, or quote in string)",
+    single_param,
     CommandFlags::None,
     CommandHelper{},
     CommandCompleter{},
-    [](const ParametersParser&, Context& context, const ShellContext&)
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
     {
         auto& buffer = context.buffer();
         if (not has_syntax_tree(buffer))
-            return;
+            return;  // no tree-sitter — allow pairing
 
         auto& syntax_tree = get_syntax_tree(buffer);
         if (not syntax_tree.is_valid())
@@ -4646,8 +4646,7 @@ const CommandDesc tree_cursor_context_cmd = {
             check_highlights(config->highlight_query(),
                              ts_tree_root_node(syntax_tree.tree()));
 
-        // Check injection layers only if not already determined
-        if (not in_string or not in_comment)
+        if (not in_string and not in_comment)
         {
             syntax_tree.detect_injections(buffer);
             for (auto& layer : syntax_tree.injection_layers())
@@ -4663,19 +4662,22 @@ const CommandDesc tree_cursor_context_cmd = {
                         break;
                     }
                 }
-                if (in_string and in_comment)
+                if (in_string or in_comment)
                     break;
             }
         }
 
-        auto set_opt = [&](StringView name, StringView value)
-        {
-            Option& opt = context.options().get_local_option(name);
-            opt.set_from_strings(ConstArrayView<String>{String{value}});
-        };
+        // In comment: block all auto-pairing
+        if (in_comment)
+            throw runtime_error("autopair blocked: in comment");
 
-        set_opt("tree_cursor_in_string", in_string ? "true" : "false");
-        set_opt("tree_cursor_in_comment", in_comment ? "true" : "false");
+        // In string: block quote auto-pairing, allow brackets
+        if (in_string)
+        {
+            StringView pair = parser[0];
+            if (pair != "(" and pair != "[" and pair != "{")
+                throw runtime_error("autopair blocked: quote in string");
+        }
     }
 };
 
@@ -5219,7 +5221,7 @@ void register_commands()
     register_command(tree_join_cmd);
     register_command(tree_toggle_cmd);
     register_command(tree_query_cursor_cmd);
-    register_command(tree_cursor_context_cmd);
+    register_command(tree_cursor_context_autopair_cmd);
 }
 
 }
