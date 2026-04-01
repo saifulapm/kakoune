@@ -4601,6 +4601,7 @@ const CommandDesc tree_cursor_context_autopair_cmd = {
             return;  // no tree-sitter — allow pairing
 
         auto& syntax_tree = get_syntax_tree(buffer);
+        syntax_tree.update(buffer);
         if (not syntax_tree.is_valid())
             return;
 
