@@ -4667,17 +4667,18 @@ const CommandDesc tree_cursor_context_autopair_cmd = {
             }
         }
 
-        // In comment: block all auto-pairing
+        bool block = false;
         if (in_comment)
-            throw runtime_error("autopair blocked: in comment");
-
-        // In string: block quote auto-pairing, allow brackets
-        if (in_string)
+            block = true;
+        else if (in_string)
         {
             StringView pair = parser[0];
             if (pair != "(" and pair != "[" and pair != "{")
-                throw runtime_error("autopair blocked: quote in string");
+                block = true;
         }
+
+        Option& opt = context.options().get_local_option("autopair_blocked");
+        opt.set_from_strings(ConstArrayView<String>{String{block ? "true" : "false"}});
     }
 };
 
