@@ -4586,6 +4586,126 @@ const CommandDesc tree_query_cursor_cmd = {
     }
 };
 
+const ParameterDesc two_params{ {}, ParameterDesc::Flags::None, 2, 2 };
+
+const CommandDesc tree_sitter_highlight_cmd = {
+    "tree-sitter-highlight",
+    nullptr,
+    "tree-sitter-highlight <language> <text>: highlight text and set tree_sitter_markup option with {face} markup",
+    two_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
+    {
+        StringView lang_name = parser[0];
+        StringView text = parser[1];
+
+        auto& registry = LanguageRegistry::instance();
+        StringView grammar_name = LanguageRegistry::filetype_to_language(lang_name);
+        auto* config = registry.get(grammar_name);
+        if (not config or not config->language() or not config->highlight_query())
+        {
+            // No grammar available — return text with markup escaping only
+            String escaped;
+            for (auto c : text)
+            {
+                if (c == '{' or c == '\\')
+                    escaped += '\\';
+                escaped += c;
+            }
+            Option& opt = context.options().get_local_option("tree_sitter_markup");
+            opt.set_from_strings(ConstArrayView<String>{escaped});
+            return;
+        }
+
+        // Parse the text with a temporary parser
+        TSParser* tmp_parser = ts_parser_new();
+        if (not ts_parser_set_language(tmp_parser, config->language()))
+        {
+            ts_parser_delete(tmp_parser);
+            throw runtime_error("failed to set language on parser");
+        }
+
+        TSTree* tree = ts_parser_parse_string(tmp_parser, nullptr,
+                                               text.data(), (uint32_t)(int)text.length());
+        if (not tree)
+        {
+            ts_parser_delete(tmp_parser);
+            throw runtime_error("failed to parse text");
+        }
+
+        // Collect highlight captures
+        struct Capture {
+            uint32_t start;
+            uint32_t end;
+            int face_index;
+        };
+        Vector<Capture> captures;
+
+        TSQuery* hq = config->highlight_query();
+
+        QueryCursorGuard qcursor;
+        ts_query_cursor_set_match_limit(qcursor, 4096);
+        ts_query_cursor_exec(qcursor, hq, ts_tree_root_node(tree));
+
+        TSQueryMatch match;
+        uint32_t capture_index;
+        while (ts_query_cursor_next_capture(qcursor, &match, &capture_index))
+        {
+            const TSQueryCapture& cap = match.captures[capture_index];
+            uint32_t start = ts_node_start_byte(cap.node);
+            uint32_t end = ts_node_end_byte(cap.node);
+            if (start >= end or cap.index >= (uint32_t)config->capture_faces().size())
+                continue;
+
+            captures.push_back({start, end, (int)cap.index});
+        }
+
+        // Sort by start position, then by length descending (wider captures first)
+        std::sort(captures.begin(), captures.end(),
+                  [](const Capture& a, const Capture& b) {
+                      if (a.start != b.start) return a.start < b.start;
+                      return (a.end - a.start) > (b.end - b.start);
+                  });
+
+        // Build per-byte face map: last (most specific) capture wins
+        Vector<int> face_map((int)text.length(), -1);
+        for (auto& cap : captures)
+        {
+            for (uint32_t i = cap.start; i < cap.end and i < (uint32_t)(int)text.length(); ++i)
+                face_map[(int)i] = cap.face_index;
+        }
+
+        // Build markup string: {face}text{face}text...
+        String result;
+        int current_face = -1;
+        for (int i = 0; i < (int)text.length(); ++i)
+        {
+            if (face_map[i] != current_face)
+            {
+                current_face = face_map[i];
+                if (current_face >= 0)
+                    result += format("{{{}}}", config->capture_faces()[current_face]);
+                else
+                    result += "{Default}";
+            }
+            char c = text[ByteCount{i}];
+            if (c == '{')
+                result += "\\{";
+            else if (c == '\\')
+                result += "\\\\";
+            else
+                result += c;
+        }
+
+        ts_tree_delete(tree);
+        ts_parser_delete(tmp_parser);
+
+        Option& opt = context.options().get_local_option("tree_sitter_markup");
+        opt.set_from_strings(ConstArrayView<String>{result});
+    }
+};
 
 // Tree-sitter split/join — like treesj for Neovim
 // Split: expand single-line node to multi-line
@@ -5127,6 +5247,7 @@ void register_commands()
     register_command(tree_join_cmd);
     register_command(tree_toggle_cmd);
     register_command(tree_query_cursor_cmd);
+    register_command(tree_sitter_highlight_cmd);
 }
 
 }

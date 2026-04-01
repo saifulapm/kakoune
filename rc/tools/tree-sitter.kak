@@ -181,6 +181,9 @@ set-face global ts_rainbow_4 blue
 set-face global ts_rainbow_5 magenta
 set-face global ts_rainbow_6 cyan
 
+# Highlight markup (set by tree-sitter-highlight command)
+declare-option str tree_sitter_markup ""
+
 # Cursor query options (set by tree-query-cursor command)
 declare-option str tree_cursor_lang ""
 declare-option str tree_cursor_node_type ""
