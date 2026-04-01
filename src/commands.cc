@@ -4586,6 +4586,99 @@ const CommandDesc tree_query_cursor_cmd = {
     }
 };
 
+const CommandDesc tree_cursor_context_cmd = {
+    "tree-cursor-context",
+    nullptr,
+    "tree-cursor-context: fast check if cursor is in string or comment (for autopair)",
+    no_params,
+    CommandFlags::None,
+    CommandHelper{},
+    CommandCompleter{},
+    [](const ParametersParser&, Context& context, const ShellContext&)
+    {
+        auto& buffer = context.buffer();
+        if (not has_syntax_tree(buffer))
+            return;
+
+        auto& syntax_tree = get_syntax_tree(buffer);
+        if (not syntax_tree.is_valid())
+            return;
+
+        auto cursor = context.selections().main().cursor();
+        auto& byte_index = syntax_tree.byte_index();
+        uint32_t cursor_byte = byte_index.byte_offset(cursor);
+
+        bool in_string = false;
+        bool in_comment = false;
+
+        auto check_highlights = [&](TSQuery* hq, TSNode root)
+        {
+            if (not hq)
+                return;
+            QueryCursorGuard qcursor;
+            ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
+            ts_query_cursor_set_match_limit(qcursor, 32);
+            ts_query_cursor_exec(qcursor, hq, root);
+
+            TSQueryMatch match;
+            while (ts_query_cursor_next_match(qcursor, &match))
+            {
+                for (uint16_t c = 0; c < match.capture_count; ++c)
+                {
+                    uint32_t len = 0;
+                    const char* name = ts_query_capture_name_for_id(
+                        hq, match.captures[c].index, &len);
+                    StringView cap{name, (ByteCount)len};
+                    if (cap == "string" or (cap.length() >= 7 and
+                        cap.substr(0_byte, 7_byte) == "string."))
+                        in_string = true;
+                    if (cap == "comment" or (cap.length() >= 8 and
+                        cap.substr(0_byte, 8_byte) == "comment."))
+                        in_comment = true;
+                }
+                if (in_string and in_comment)
+                    return;
+            }
+        };
+
+        auto* config = syntax_tree.config();
+        if (config)
+            check_highlights(config->highlight_query(),
+                             ts_tree_root_node(syntax_tree.tree()));
+
+        // Check injection layers only if not already determined
+        if (not in_string or not in_comment)
+        {
+            syntax_tree.detect_injections(buffer);
+            for (auto& layer : syntax_tree.injection_layers())
+            {
+                if (not layer.config or not layer.tree)
+                    continue;
+                for (auto& range : layer.ranges)
+                {
+                    if (range.start_byte <= cursor_byte and cursor_byte < range.end_byte)
+                    {
+                        check_highlights(layer.config->highlight_query(),
+                                         ts_tree_root_node(layer.tree));
+                        break;
+                    }
+                }
+                if (in_string and in_comment)
+                    break;
+            }
+        }
+
+        auto set_opt = [&](StringView name, StringView value)
+        {
+            Option& opt = context.options().get_local_option(name);
+            opt.set_from_strings(ConstArrayView<String>{String{value}});
+        };
+
+        set_opt("tree_cursor_in_string", in_string ? "true" : "false");
+        set_opt("tree_cursor_in_comment", in_comment ? "true" : "false");
+    }
+};
+
 // Tree-sitter split/join — like treesj for Neovim
 // Split: expand single-line node to multi-line
 // Join: collapse multi-line node to single-line
@@ -5126,6 +5219,7 @@ void register_commands()
     register_command(tree_join_cmd);
     register_command(tree_toggle_cmd);
     register_command(tree_query_cursor_cmd);
+    register_command(tree_cursor_context_cmd);
 }
 
 }
