@@ -158,6 +158,8 @@ StringView LanguageRegistry::filetype_to_language(StringView filetype)
         return "ruby";
     if (filetype == "csharp" or filetype == "cs")
         return "c-sharp";
+    if (filetype == "json")
+        return "jsonc";
     if (filetype == "tfvars")
         return "hcl";
     if (filetype == "racket")
@@ -655,16 +657,32 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
     return result;
 }
 
+// Map language names to grammar names where they differ
+// (mirrors Helix's `grammar = "..."` field in languages.toml)
+static StringView language_to_grammar(StringView name)
+{
+    if (name == "markdown.inline")
+        return "markdown_inline";
+    if (name == "jsonc")
+        return "json";
+    if (name == "markdown-rustdoc")
+        return "markdown";
+    return name;
+}
+
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
+    // Resolve grammar name (language name may differ from grammar name)
+    StringView grammar = language_to_grammar(name);
+
     // Try to dlopen the grammar shared library (helix uses .so on all platforms)
-    String so_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.so", name));
+    String so_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.so", grammar));
     void* handle = dlopen(so_path.c_str(), RTLD_LAZY);
 
     // Fallback: try .dylib for user-built grammars in config dir
     if (not handle)
     {
-        String dylib_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.dylib", name));
+        String dylib_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir, format("grammars/{}.dylib", grammar));
         handle = dlopen(dylib_path.c_str(), RTLD_LAZY);
     }
 
@@ -676,10 +694,10 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
         return nullptr;
     }
 
-    // Look up the grammar function (hyphens in name → underscores in symbol)
-    String symbol_suffix = name.str();
+    // Look up the grammar function (hyphens and dots in name → underscores in symbol)
+    String symbol_suffix = grammar.str();
     for (auto& c : symbol_suffix)
-        if (c == '-') c = '_';
+        if (c == '-' or c == '.') c = '_';
     String symbol_name = format("tree_sitter_{}", symbol_suffix);
     using GrammarFn = TSLanguage* (*)();
     auto grammar_fn = reinterpret_cast<GrammarFn>(dlsym(handle, symbol_name.c_str()));
