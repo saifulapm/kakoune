@@ -5,6 +5,10 @@ on:
     - cron: '0 6 * * *'  # daily at 6am UTC
   workflow_dispatch:       # manual trigger
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -27,16 +31,29 @@ jobs:
           echo "Upstream is $BEHIND commits ahead"
 
       - name: Create sync branch and PR
-        if: steps.check.outputs.behind > 0
+        if: steps.check.outputs.behind != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="sync/upstream-$(date +%Y%m%d)"
-          git checkout -b "$BRANCH"
-          git merge upstream/master --no-edit || true
 
-          if git diff --quiet HEAD; then
-            echo "Already up to date"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+
+          # Attempt merge — if conflicts arise, commit them as-is for manual resolution
+          if git merge upstream/master --no-edit; then
+            echo "Clean merge"
+          else
+            echo "Merge has conflicts — committing conflict markers for manual resolution"
+            git add -A
+            git commit --no-edit -m "sync: merge upstream/master (conflicts need resolution)"
+          fi
+
+          # Check if merge actually brought in changes
+          if git diff --quiet main; then
+            echo "Already up to date — no changes from upstream"
             exit 0
           fi
 
@@ -49,8 +66,9 @@ jobs:
             exit 0
           fi
 
+          BEHIND=${{ steps.check.outputs.behind }}
           gh pr create \
             --title "Sync upstream Kakoune $(date +%Y-%m-%d)" \
-            --body "Automated sync from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
+            --body "Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
             --base main \
             --head "$BRANCH"
