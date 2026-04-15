@@ -2,6 +2,10 @@
 
 #include "assert.hh"
 #include "buffer_utils.hh"
+<<<<<<< HEAD
+=======
+#include "debug.hh"
+>>>>>>> upstream/master
 #include "changes.hh"
 #include "command_manager.hh"
 #include "context.hh"
@@ -9,7 +13,10 @@
 #include "display_buffer.hh"
 #include "face_registry.hh"
 #include "highlighter_group.hh"
+<<<<<<< HEAD
 #include "language_registry.hh"
+=======
+>>>>>>> upstream/master
 #include "line_modification.hh"
 #include "option_manager.hh"
 #include "option_types.hh"
@@ -23,6 +30,10 @@
 #include "utf8.hh"
 #include "utf8_iterator.hh"
 #include "window.hh"
+<<<<<<< HEAD
+=======
+#include "unicode.hh"
+>>>>>>> upstream/master
 
 #include <cstdio>
 #include <limits>
@@ -2316,6 +2327,7 @@ private:
             }
             matches.erase(ins_pos, matches.end());
         }
+<<<<<<< HEAD
     }
 
     bool update_matches(Cache& cache, const Buffer& buffer, LineRange range)
@@ -2813,9 +2825,111 @@ private:
                            layer.config->highlight_predicates(), buffer,
                            context, display_buffer);
         }
+=======
+>>>>>>> upstream/master
     }
+
+    bool update_matches(Cache& cache, const Buffer& buffer, LineRange range)
+    {
+        const size_t buffer_timestamp = buffer.timestamp();
+        if (cache.buffer_timestamp == 0 or
+            cache.regions_timestamp != m_regions_timestamp)
+        {
+            m_regexes.clear();
+            cache.matches.clear();
+            for (auto& [key, region] : m_regions)
+            {
+                add_regex(region->m_begin, region->match_capture());
+                add_regex(region->m_end, region->match_capture());
+                add_regex(region->m_recurse, region->match_capture());
+            }
+
+            MatchAdder{*this, buffer, cache}.add(range);
+            cache.ranges.reset(range);
+            cache.buffer_timestamp = buffer_timestamp;
+            cache.regions_timestamp = m_regions_timestamp;
+            return true;
+        }
+        else
+        {
+            bool modified = false;
+            if (cache.buffer_timestamp != buffer_timestamp)
+            {
+                auto modifs = compute_line_modifications(buffer, cache.buffer_timestamp);
+                update_changed_lines(buffer, modifs, cache);
+                cache.ranges.update(modifs);
+                cache.buffer_timestamp = buffer_timestamp;
+                modified = true;
+            }
+
+            MatchAdder matches{*this, buffer, cache};
+            cache.ranges.add_range(range, [&](const LineRange& range) {
+                if (range.begin == range.end)
+                    return;
+                matches.add(range);
+                modified = true;
+            });
+            return modified;
+        }
+    }
+
+    const RegionList& get_regions_for_range(const Buffer& buffer, BufferRange range)
+    {
+        Cache& cache = m_cache.get(buffer);
+        if (update_matches(cache, buffer, {range.begin.line, std::min(buffer.line_count(), range.end.line + 1)}))
+            cache.regions.clear();
+
+        auto it = cache.regions.find(range);
+        if (it != cache.regions.end())
+            return it->value;
+
+        RegionList& regions = cache.regions[range];
+        RegexMatchList empty_matches{};
+
+        for (auto begin = find_next_begin(cache, range.begin); begin; )
+        {
+            auto& [index, beg_it] = *begin;
+            auto& region = *m_regions.item(index).value;
+            auto& end_matches = cache.matches.get(RegexKey{region.m_end, region.match_capture()});
+            auto& recurse_matches = region.m_recurse.empty() ?
+                empty_matches : cache.matches.get(RegexKey{region.m_recurse, region.match_capture()});
+
+            auto end_it = find_matching_end(buffer, beg_it->end_coord(), end_matches, recurse_matches,
+                                            region.match_capture() ? beg_it->capture(buffer) : Optional<StringView>{});
+
+            if (end_it == end_matches.end() or end_it->end_coord() >= range.end) // region continue past range end
+            {
+                auto begin_coord = beg_it->begin_coord();
+                if (begin_coord < range.end)
+                    regions.push_back({begin_coord, range.end, &region});
+                break;
+            }
+
+            auto end_coord = end_it->end_coord();
+            regions.push_back({beg_it->begin_coord(), end_coord, &region});
+
+            // With empty begin and end matches (for example if the regexes
+            // are /"\K/ and /(?=")/), that case can happen, and would
+            // result in an infinite loop.
+            if (end_coord == beg_it->begin_coord())
+            {
+                kak_assert(beg_it->empty() and end_it->empty());
+                ++end_coord.column;
+            }
+            begin = find_next_begin(cache, end_coord);
+        }
+        return regions;
+    }
+
+    HashMap<String, UniquePtr<RegionHighlighter>, MemoryDomain::Highlight> m_regions;
+    HashMap<RegexKey, Regex> m_regexes;
+    String m_default_region;
+
+    size_t m_regions_timestamp = 0;
+    BufferSideCache<Cache> m_cache;
 };
 
+<<<<<<< HEAD
 const HighlighterDesc rainbow_bracket_desc = {
     "Use tree-sitter to color matching brackets by nesting depth",
     {}
@@ -2998,6 +3112,14 @@ private:
         }
     }
 };
+=======
+void setup_builtin_highlighters(HighlighterGroup& group)
+{
+    group.add_child("tabulations"_str, make_unique_ptr<TabulationHighlighter>());
+    group.add_child("unprintable"_str, make_highlighter(expand_unprintable));
+    group.add_child("selections"_str,  make_highlighter(highlight_selections));
+}
+>>>>>>> upstream/master
 
 void register_highlighters()
 {
@@ -3052,12 +3174,15 @@ void register_highlighters()
         "show-whitespaces",
         { ShowWhitespacesHighlighter::create, &show_whitespace_desc } });
     registry.insert({
+<<<<<<< HEAD
         "tree-sitter",
         { TreeSitterHighlighter::create, &tree_sitter_desc } });
     registry.insert({
         "tree-sitter-rainbow",
         { RainbowBracketHighlighter::create, &rainbow_bracket_desc } });
     registry.insert({
+=======
+>>>>>>> upstream/master
         "wrap",
         { WrapHighlighter::create, &wrap_desc } });
 }

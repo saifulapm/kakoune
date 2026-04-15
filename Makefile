@@ -2,7 +2,10 @@
 .SUFFIXES:
 
 CXX = c++
+<<<<<<< HEAD
 CC = cc
+=======
+>>>>>>> upstream/master
 
 debug = no
 static = no
@@ -51,7 +54,10 @@ os = $(shell uname | sed 's/.*_NT.*/Windows/')
 os != uname | sed 's/.*_NT.*/Windows/'
 
 LIBS-os-Haiku = -lnetwork -lbe
+<<<<<<< HEAD
 LIBS-os-Linux += -ldl
+=======
+>>>>>>> upstream/master
 
 CPPFLAGS-os-OpenBSD = -DKAK_BIN_PATH=\"$(bindir)/kak\"
 mandir-os-OpenBSD = $(DESTDIR)$(PREFIX)/man/man1
@@ -96,23 +102,35 @@ KAK_LIBS = \
 tag = $(tag-debug-$(debug))$(tag-sanitize-$(sanitize))
 tagbin = $(tag)$(tag-static-$(static))
 
+<<<<<<< HEAD
 .SUFFIXES: $(tag).o .cc .c
+=======
+.SUFFIXES: $(tag).o .cc
+>>>>>>> upstream/master
 .PHONY: src/kak
 
 sources = $(shell find src -type f -name '*.cc' | sed -e '/\.version\.cc/d')
 sources != find src -type f -name '*.cc' | sed -e '/\.version\.cc/d'
 objects = $(sources:.cc=$(tag).o)
 
+<<<<<<< HEAD
 ts_sources = src/tree_sitter/lib.c
 ts_objects = $(ts_sources:.c=$(tag).o)
 
+=======
+>>>>>>> upstream/master
 all: src/kak
 
 src/kak: src/kak$(tagbin)
 	ln -sf kak$(tagbin) $@
 
+<<<<<<< HEAD
 src/kak$(tagbin): src/.version$(tag).o $(objects) $(ts_objects)
 	$(CXX) $(KAK_LDFLAGS) $(KAK_CXXFLAGS) $(objects) $(ts_objects) src/.version$(tag).o $(KAK_LIBS) -o $@
+=======
+src/kak$(tagbin): src/.version$(tag).o $(objects)
+	$(CXX) $(KAK_LDFLAGS) $(KAK_CXXFLAGS) $(objects) src/.version$(tag).o $(KAK_LIBS) -o $@
+>>>>>>> upstream/master
 
 deps = $(shell touch src/.version$(tag).d && find src -type f -name '.*$(tag).d') # Ensure we find one deps for FreeBSD make
 deps != touch src/.version$(tag).d && find src -type f -name '.*$(tag).d' # Ensure we find one deps for FreeBSD make
@@ -121,9 +139,12 @@ include $(deps)
 .cc$(tag).o:
 	$(CXX) $(KAK_CPPFLAGS) $(KAK_CXXFLAGS) -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
 
+<<<<<<< HEAD
 .c$(tag).o:
 	$(CC) -std=c11 $(CXXFLAGS-debug-$(debug)) -Isrc -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
 
+=======
+>>>>>>> upstream/master
 src/.version.cc:
 	echo 'namespace Kakoune { const char *version = "$(version)"; }' > $@
 
@@ -151,7 +172,11 @@ tags:
 	ctags -R
 
 clean:
+<<<<<<< HEAD
 	rm -f $(objects) $(ts_objects) $(deps) src/.version*
+=======
+	rm -f $(objects) $(deps) src/.version*
+>>>>>>> upstream/master
 
 dist: kakoune-$(version).tar.$(compress-suffix-$(compress_bin))
 
@@ -206,7 +231,10 @@ install: src/kak installdirs install-debug-$(debug) install-gzip-man-$(gzip_man)
 	cp doc/pages/*.asciidoc $(sharedir)/doc
 	chmod 0644 $(sharedir)/doc/*.asciidoc
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> upstream/master
 install-gzip-man-yes: gzip-man-yes installdirs
 	cp -f doc/kak.1.gz $(mandir)
 	chmod 0644 $(mandir)/kak.1.gz

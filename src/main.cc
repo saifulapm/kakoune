@@ -16,7 +16,10 @@
 #include "insert_completer.hh"
 #include "json_ui.hh"
 #include "keymap_manager.hh"
+<<<<<<< HEAD
 #include "language_registry.hh"
+=======
+>>>>>>> upstream/master
 #include "terminal_ui.hh"
 #include "option_manager.hh"
 #include "option_types.hh"
@@ -129,6 +132,7 @@ String config_directory()
     return format("{}/.config/kak", homedir());
 }
 
+<<<<<<< HEAD
 String helix_runtime_directory()
 {
     if (const char* helix_runtime = getenv("HELIX_RUNTIME"))
@@ -150,6 +154,8 @@ String helix_config_directory()
     return format("{}/.config/helix/runtime", homedir());
 }
 
+=======
+>>>>>>> upstream/master
 auto main_sel_first(const SelectionList& selections)
 {
     auto beg = &*selections.begin(), end = &*selections.end();
@@ -726,7 +732,10 @@ int run_server(StringView session, StringView server_init,
     RegisterManager     register_manager;
     HighlighterRegistry highlighter_registry;
     SharedHighlighters  defined_highlighters;
+<<<<<<< HEAD
     LanguageRegistry    language_registry{helix_runtime_directory(), helix_config_directory()};
+=======
+>>>>>>> upstream/master
     ClientManager       client_manager;
     BufferManager       buffer_manager;
 
