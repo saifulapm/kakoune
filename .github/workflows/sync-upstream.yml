@@ -27,12 +27,24 @@ jobs:
       - name: Check for new commits
         id: check
         run: |
-          BEHIND=$(git rev-list HEAD..upstream/master --count)
-          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
-          echo "Upstream is $BEHIND commits ahead"
+          LAST_SYNCED=$(cat .github/upstream-sha)
+          UPSTREAM_HEAD=$(git rev-parse upstream/master)
+          echo "Last synced: $LAST_SYNCED"
+          echo "Upstream HEAD: $UPSTREAM_HEAD"
+
+          if [ "$UPSTREAM_HEAD" = "$(git rev-parse "$LAST_SYNCED")" ]; then
+            echo "Already up to date"
+            echo "has_new=false" >> $GITHUB_OUTPUT
+          else
+            BEHIND=$(git rev-list "$LAST_SYNCED".."$UPSTREAM_HEAD" --count)
+            echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+            echo "has_new=true" >> $GITHUB_OUTPUT
+            echo "upstream_head=$UPSTREAM_HEAD" >> $GITHUB_OUTPUT
+            echo "Upstream has $BEHIND new commits since last sync"
+          fi
 
       - name: Create sync branch and PR
-        if: steps.check.outputs.behind != '0'
+        if: steps.check.outputs.has_new == 'true'
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -85,3 +97,11 @@ jobs:
             -f body="Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
             -f base=main \
             -f head="$BRANCH"
+
+          # Update last synced SHA on main so next run skips these commits
+          UPSTREAM_HEAD=${{ steps.check.outputs.upstream_head }}
+          git checkout main
+          echo "$UPSTREAM_HEAD" > .github/upstream-sha
+          git add .github/upstream-sha
+          git commit -m "chore: update upstream-sha to $UPSTREAM_HEAD"
+          git push origin main
