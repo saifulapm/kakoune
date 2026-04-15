@@ -51,6 +51,18 @@ jobs:
             git commit --no-edit -m "sync: merge upstream/master (conflicts need resolution)"
           fi
 
+          # Remove upstream workflow changes — GITHUB_TOKEN cannot push to .github/workflows/
+          git diff main --name-only -- .github/workflows/ | while read -r f; do
+            if git ls-tree -r main --name-only -- "$f" > /dev/null 2>&1 && git show "main:$f" > /dev/null 2>&1; then
+              git checkout main -- "$f"
+            else
+              git rm -f "$f"
+            fi
+          done
+          if ! git diff --cached --quiet || git diff --cached --name-only | grep -q .; then
+            git commit -m "sync: preserve local workflows (upstream workflow changes excluded)"
+          fi
+
           # Check if merge actually brought in changes
           if git diff --quiet main; then
             echo "Already up to date — no changes from upstream"
