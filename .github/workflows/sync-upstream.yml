@@ -80,8 +80,8 @@ jobs:
           fi
 
           BEHIND=${{ steps.check.outputs.behind }}
-          gh pr create \
-            --title "Sync upstream Kakoune $(date +%Y-%m-%d)" \
-            --body "Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
-            --base main \
-            --head "$BRANCH"
+          gh api repos/${{ github.repository }}/pulls \
+            -f title="Sync upstream Kakoune $(date +%Y-%m-%d)" \
+            -f body="Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
+            -f base=main \
+            -f head="$BRANCH"
