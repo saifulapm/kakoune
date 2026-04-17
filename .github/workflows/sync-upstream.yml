@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   sync:
@@ -43,8 +44,9 @@ jobs:
             echo "Upstream has $BEHIND new commits since last sync"
           fi
 
-      - name: Create sync branch and PR
+      - name: Try clean merge
         if: steps.check.outputs.has_new == 'true'
+        id: merge
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -55,36 +57,52 @@ jobs:
 
           git checkout -b "$BRANCH"
 
-          # Attempt merge — if conflicts arise, commit them as-is for manual resolution
-          if git merge upstream/master --no-edit; then
-            echo "Clean merge"
-          else
-            echo "Merge has conflicts — committing conflict markers for manual resolution"
-            git add -A
-            git commit --no-edit -m "sync: merge upstream/master (conflicts need resolution)"
+          # Try merge. If it fails, abort — do NOT commit conflict markers.
+          if ! git merge upstream/master --no-edit --no-commit; then
+            echo "Merge has conflicts — aborting auto-merge"
+            git merge --abort
+            echo "clean=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          # Clean merge — finalize it
+          git commit --no-edit -m "sync: merge upstream/master" || true
 
           # Remove upstream workflow changes — GITHUB_TOKEN cannot push to .github/workflows/
           git diff main --name-only -- .github/workflows/ | while read -r f; do
-            if git ls-tree -r main --name-only -- "$f" > /dev/null 2>&1 && git show "main:$f" > /dev/null 2>&1; then
+            if git show "main:$f" > /dev/null 2>&1; then
               git checkout main -- "$f"
             else
               git rm -f "$f"
             fi
           done
-          if ! git diff --cached --quiet || git diff --cached --name-only | grep -q .; then
+          if ! git diff --cached --quiet; then
             git commit -m "sync: preserve local workflows (upstream workflow changes excluded)"
           fi
 
-          # Check if merge actually brought in changes
           if git diff --quiet main; then
-            echo "Already up to date — no changes from upstream"
+            echo "No net changes after merge"
+            echo "clean=true" >> $GITHUB_OUTPUT
+            echo "empty=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          git push origin "$BRANCH"
+          # Update SHA on sync branch so merging the PR atomically marks it synced
+          UPSTREAM_HEAD=${{ steps.check.outputs.upstream_head }}
+          echo "$UPSTREAM_HEAD" > .github/upstream-sha
+          git add .github/upstream-sha
+          git commit -m "chore: update upstream-sha to $UPSTREAM_HEAD"
 
-          # Check if PR already exists
+          git push origin "$BRANCH"
+          echo "clean=true" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Open PR for clean merge
+        if: steps.check.outputs.has_new == 'true' && steps.merge.outputs.clean == 'true' && steps.merge.outputs.empty != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          BRANCH="${{ steps.merge.outputs.branch }}"
           EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING" ]; then
             echo "PR #$EXISTING already exists"
@@ -94,14 +112,45 @@ jobs:
           BEHIND=${{ steps.check.outputs.behind }}
           gh api repos/${{ github.repository }}/pulls \
             -f title="Sync upstream Kakoune $(date +%Y-%m-%d)" \
-            -f body="Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch." \
+            -f body="Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch. Clean merge — no conflicts." \
             -f base=main \
             -f head="$BRANCH"
 
-          # Update last synced SHA on main so next run skips these commits
+      - name: Open issue on conflict
+        if: steps.check.outputs.has_new == 'true' && steps.merge.outputs.clean == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
           UPSTREAM_HEAD=${{ steps.check.outputs.upstream_head }}
-          git checkout main
+          BEHIND=${{ steps.check.outputs.behind }}
+          TITLE="Upstream sync needs manual resolution ($(date +%Y-%m-%d))"
+
+          # Dedupe: skip if an open issue with this title already exists
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING already open"
+            exit 0
+          fi
+
+          BODY=$(cat <<EOF
+          Upstream \`mawww/kakoune\` has $BEHIND new commits that conflict with this fork. The workflow did not auto-merge to avoid committing conflict markers.
+
+          **Upstream HEAD:** \`$UPSTREAM_HEAD\`
+          **Last synced:** \`$(cat .github/upstream-sha)\`
+
+          To sync manually:
+          \`\`\`sh
+          git fetch upstream master
+          git checkout -b sync/upstream-$(date +%Y%m%d)
+          git merge upstream/master
+          # resolve conflicts, then:
           echo "$UPSTREAM_HEAD" > .github/upstream-sha
           git add .github/upstream-sha
-          git commit -m "chore: update upstream-sha to $UPSTREAM_HEAD"
-          git push origin main
+          git commit --amend --no-edit
+          git push -u origin sync/upstream-$(date +%Y%m%d)
+          gh pr create
+          \`\`\`
+          EOF
+          )
+
+          gh issue create --title "$TITLE" --body "$BODY"
