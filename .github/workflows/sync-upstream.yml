@@ -2,8 +2,8 @@ name: Sync upstream Kakoune
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # daily at 6am UTC
-  workflow_dispatch:       # manual trigger
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,132 +25,96 @@ jobs:
       - name: Fetch upstream
         run: git fetch upstream master
 
-      - name: Check for new commits
-        id: check
-        run: |
-          LAST_SYNCED=$(cat .github/upstream-sha)
-          UPSTREAM_HEAD=$(git rev-parse upstream/master)
-          echo "Last synced: $LAST_SYNCED"
-          echo "Upstream HEAD: $UPSTREAM_HEAD"
-
-          if [ "$UPSTREAM_HEAD" = "$(git rev-parse "$LAST_SYNCED")" ]; then
-            echo "Already up to date"
-            echo "has_new=false" >> $GITHUB_OUTPUT
-          else
-            BEHIND=$(git rev-list "$LAST_SYNCED".."$UPSTREAM_HEAD" --count)
-            echo "behind=$BEHIND" >> $GITHUB_OUTPUT
-            echo "has_new=true" >> $GITHUB_OUTPUT
-            echo "upstream_head=$UPSTREAM_HEAD" >> $GITHUB_OUTPUT
-            echo "Upstream has $BEHIND new commits since last sync"
-          fi
-
-      - name: Try clean merge
-        if: steps.check.outputs.has_new == 'true'
-        id: merge
+      - name: Cherry-pick new upstream commits, one PR per commit
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          set -e
+          LAST_SYNCED=$(cat .github/upstream-sha)
+          UPSTREAM_HEAD=$(git rev-parse upstream/master)
+
+          if [ "$UPSTREAM_HEAD" = "$(git rev-parse "$LAST_SYNCED")" ]; then
+            echo "Already up to date"
+            exit 0
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git checkout -b "$BRANCH"
+          # Walk commits oldest → newest so order matches upstream history
+          COMMITS=$(git rev-list --reverse "$LAST_SYNCED".."$UPSTREAM_HEAD")
+          echo "New upstream commits:"
+          echo "$COMMITS"
 
-          # Try merge. If it fails, abort — do NOT commit conflict markers.
-          if ! git merge upstream/master --no-edit --no-commit; then
-            echo "Merge has conflicts — aborting auto-merge"
-            git merge --abort
-            echo "clean=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          for SHA in $COMMITS; do
+            SHORT=$(git rev-parse --short "$SHA")
+            SUBJECT=$(git log -1 --format=%s "$SHA")
+            BRANCH="sync/$SHORT"
 
-          # Clean merge — finalize it
-          git commit --no-edit -m "sync: merge upstream/master" || true
-
-          # Remove upstream workflow changes — GITHUB_TOKEN cannot push to .github/workflows/
-          git diff main --name-only -- .github/workflows/ | while read -r f; do
-            if git show "main:$f" > /dev/null 2>&1; then
-              git checkout main -- "$f"
-            else
-              git rm -f "$f"
+            # Skip if branch or PR already exists (dedupe across runs)
+            if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+              echo "Branch $BRANCH already exists — skipping"
+              continue
             fi
-          done
-          if ! git diff --cached --quiet; then
-            git commit -m "sync: preserve local workflows (upstream workflow changes excluded)"
-          fi
 
-          if git diff --quiet main; then
-            echo "No net changes after merge"
-            echo "clean=true" >> $GITHUB_OUTPUT
-            echo "empty=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+            git checkout main
+            git checkout -b "$BRANCH"
 
-          # Update SHA on sync branch so merging the PR atomically marks it synced
-          UPSTREAM_HEAD=${{ steps.check.outputs.upstream_head }}
-          echo "$UPSTREAM_HEAD" > .github/upstream-sha
-          git add .github/upstream-sha
-          git commit -m "chore: update upstream-sha to $UPSTREAM_HEAD"
+            # Skip commits that only touch .github/workflows (GITHUB_TOKEN cannot push there)
+            FILES=$(git show --name-only --format= "$SHA")
+            if [ -n "$FILES" ] && ! echo "$FILES" | grep -qv '^\.github/workflows/'; then
+              echo "Commit $SHORT only touches .github/workflows — skipping"
+              continue
+            fi
 
-          git push origin "$BRANCH"
-          echo "clean=true" >> $GITHUB_OUTPUT
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            if git cherry-pick "$SHA"; then
+              # Drop any .github/workflows changes from the cherry-pick
+              if git diff HEAD~1 --name-only | grep -q '^\.github/workflows/'; then
+                git diff HEAD~1 --name-only -- .github/workflows/ | while read -r f; do
+                  if git show "main:$f" > /dev/null 2>&1; then
+                    git checkout main -- "$f"
+                  else
+                    git rm -f "$f"
+                  fi
+                done
+                git commit --amend --no-edit
+              fi
 
-      - name: Open PR for clean merge
-        if: steps.check.outputs.has_new == 'true' && steps.merge.outputs.clean == 'true' && steps.merge.outputs.empty != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          BRANCH="${{ steps.merge.outputs.branch }}"
-          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
-          if [ -n "$EXISTING" ]; then
-            echo "PR #$EXISTING already exists"
-            exit 0
-          fi
+              git push origin "$BRANCH"
+              gh api repos/${{ github.repository }}/pulls \
+                -f title="Sync: $SUBJECT" \
+                -f body="Cherry-pick of upstream commit [\`$SHORT\`](https://github.com/mawww/kakoune/commit/$SHA) from mawww/kakoune." \
+                -f base=main \
+                -f head="$BRANCH"
+            else
+              echo "Conflict on $SHORT — aborting cherry-pick and opening issue"
+              git cherry-pick --abort
 
-          BEHIND=${{ steps.check.outputs.behind }}
-          gh api repos/${{ github.repository }}/pulls \
-            -f title="Sync upstream Kakoune $(date +%Y-%m-%d)" \
-            -f body="Automated sync of $BEHIND commits from [mawww/kakoune](https://github.com/mawww/kakoune) master branch. Clean merge — no conflicts." \
-            -f base=main \
-            -f head="$BRANCH"
+              TITLE="Sync conflict: $SUBJECT ($SHORT)"
+              EXISTING=$(gh issue list --state open --search "$SHORT in:title" --json number --jq '.[0].number' 2>/dev/null || true)
+              if [ -z "$EXISTING" ]; then
+                gh issue create \
+                  --title "$TITLE" \
+                  --body "Cherry-picking upstream [\`$SHORT\`](https://github.com/mawww/kakoune/commit/$SHA) conflicts with this fork.
 
-      - name: Open issue on conflict
-        if: steps.check.outputs.has_new == 'true' && steps.merge.outputs.clean == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          UPSTREAM_HEAD=${{ steps.check.outputs.upstream_head }}
-          BEHIND=${{ steps.check.outputs.behind }}
-          TITLE="Upstream sync needs manual resolution ($(date +%Y-%m-%d))"
-
-          # Dedupe: skip if an open issue with this title already exists
-          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number' 2>/dev/null || true)
-          if [ -n "$EXISTING" ]; then
-            echo "Issue #$EXISTING already open"
-            exit 0
-          fi
-
-          BODY=$(cat <<EOF
-          Upstream \`mawww/kakoune\` has $BEHIND new commits that conflict with this fork. The workflow did not auto-merge to avoid committing conflict markers.
-
-          **Upstream HEAD:** \`$UPSTREAM_HEAD\`
-          **Last synced:** \`$(cat .github/upstream-sha)\`
-
-          To sync manually:
+          To resolve manually:
           \`\`\`sh
           git fetch upstream master
-          git checkout -b sync/upstream-$(date +%Y%m%d)
-          git merge upstream/master
+          git checkout -b sync/$SHORT
+          git cherry-pick $SHA
           # resolve conflicts, then:
-          echo "$UPSTREAM_HEAD" > .github/upstream-sha
-          git add .github/upstream-sha
-          git commit --amend --no-edit
-          git push -u origin sync/upstream-$(date +%Y%m%d)
+          git push -u origin sync/$SHORT
           gh pr create
-          \`\`\`
-          EOF
-          )
+          \`\`\`"
+              fi
+            fi
+          done
 
-          gh issue create --title "$TITLE" --body "$BODY"
+          # Advance upstream-sha on main to UPSTREAM_HEAD so next run only sees newer commits
+          git checkout main
+          echo "$UPSTREAM_HEAD" > .github/upstream-sha
+          if ! git diff --quiet; then
+            git add .github/upstream-sha
+            git commit -m "chore: update upstream-sha to $UPSTREAM_HEAD"
+            git push origin main
+          fi
