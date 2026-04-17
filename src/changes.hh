@@ -4,6 +4,11 @@
 #include "buffer.hh"
 #include "coord.hh"
 
+<<<<<<< HEAD
+=======
+#include <algorithm>
+
+>>>>>>> upstream/master
 namespace Kakoune
 {
 

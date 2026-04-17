@@ -317,7 +317,11 @@ Optional<BufferCoord> Window::buffer_coord(DisplayCoord coord) const
     if (m_display_buffer.timestamp() != buffer().timestamp() or
         m_display_buffer.lines().empty())
         return {};
+<<<<<<< HEAD
     if (coord <= 0_line)
+=======
+    if (coord < 0_line)
+>>>>>>> upstream/master
         return {};
     if ((size_t)coord.line >= m_display_buffer.lines().size())
         return {};
