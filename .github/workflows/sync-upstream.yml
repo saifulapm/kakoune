@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write
 
 jobs:
   sync:
@@ -67,7 +66,13 @@ jobs:
               continue
             fi
 
-            if git cherry-pick "$SHA"; then
+            # Skip commits that touch no files (e.g. copyright waivers)
+            if [ -z "$(git show --name-only --format= "$SHA")" ]; then
+              echo "Commit $SHORT has no file changes — skipping"
+              continue
+            fi
+
+            if git cherry-pick --allow-empty "$SHA"; then
               # Drop any .github/workflows changes from the cherry-pick
               if git diff HEAD~1 --name-only | grep -q '^\.github/workflows/'; then
                 git diff HEAD~1 --name-only -- .github/workflows/ | while read -r f; do
@@ -87,26 +92,8 @@ jobs:
                 -f base=main \
                 -f head="$BRANCH"
             else
-              echo "Conflict on $SHORT — aborting cherry-pick and opening issue"
+              echo "::warning title=Sync conflict::Cherry-picking $SHORT ($SUBJECT) conflicts with this fork — skipping. Resolve manually with: git fetch upstream && git checkout -b sync/$SHORT && git cherry-pick $SHA"
               git cherry-pick --abort
-
-              TITLE="Sync conflict: $SUBJECT ($SHORT)"
-              EXISTING=$(gh issue list --state open --search "$SHORT in:title" --json number --jq '.[0].number' 2>/dev/null || true)
-              if [ -z "$EXISTING" ]; then
-                gh issue create \
-                  --title "$TITLE" \
-                  --body "Cherry-picking upstream [\`$SHORT\`](https://github.com/mawww/kakoune/commit/$SHA) conflicts with this fork.
-
-          To resolve manually:
-          \`\`\`sh
-          git fetch upstream master
-          git checkout -b sync/$SHORT
-          git cherry-pick $SHA
-          # resolve conflicts, then:
-          git push -u origin sync/$SHORT
-          gh pr create
-          \`\`\`"
-              fi
             fi
           done
 
