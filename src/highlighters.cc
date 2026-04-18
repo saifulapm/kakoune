@@ -2623,12 +2623,15 @@ private:
     HashSet<uint32_t> m_local_refs;
     size_t m_local_refs_timestamp = 0;
 
-    // Highlight result cache — skip query re-execution when tree unchanged
+    // Highlight result cache — skip query re-execution when tree unchanged.
+    // Stores resolved Face directly to avoid parse_face+hash lookup per capture.
+    // Tradeoff: `face global ts_keyword …` takes effect only after the next
+    // tree edit or viewport change, not instantly.
     struct CachedHighlight
     {
         BufferCoord begin;
         BufferCoord end;
-        String face_name;
+        Face face;
     };
     Vector<CachedHighlight> m_cached_highlights;
     size_t m_highlight_cache_timestamp = -1u;
@@ -2651,6 +2654,12 @@ private:
         ts_query_cursor_set_match_limit(m_cursor, 4096);
         ts_query_cursor_exec(m_cursor, query, root);
 
+        const auto& face_registry = context.context.faces();
+        // Per-capture-id Face cache: captures repeat across matches, so resolve each name once.
+        Vector<Optional<Face>> face_cache((int)capture_faces.size());
+        // Local-ref override uses a single fixed face name; resolve once.
+        const Face local_face = face_registry["ts_variable"];
+
         TSQueryMatch match;
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(m_cursor, &match, &capture_index))
@@ -2659,10 +2668,7 @@ private:
             if (match.pattern_index < (uint32_t)highlight_preds.size()
                 and not highlight_preds[(int)match.pattern_index].empty()
                 and not predicates_match(highlight_preds[(int)match.pattern_index], match, buffer))
-            {
-                ts_query_cursor_remove_match(m_cursor, match.id);
                 continue;
-            }
 
             const TSQueryCapture& capture = match.captures[capture_index];
 
@@ -2673,9 +2679,16 @@ private:
             bool is_local_ref = not local_refs.empty()
                                 and local_refs.find(node_start) != local_refs.end();
 
-            static const String local_face_name{"ts_variable"};
-            const auto& face_name = is_local_ref ? local_face_name
-                                                 : capture_faces[(int)capture.index];
+            Face face;
+            if (is_local_ref)
+                face = local_face;
+            else
+            {
+                auto& slot = face_cache[(int)capture.index];
+                if (not slot)
+                    slot = face_registry[capture_faces[(int)capture.index]];
+                face = *slot;
+            }
 
             TSPoint start_point = ts_node_start_point(capture.node);
             TSPoint end_point = ts_node_end_point(capture.node);
@@ -2685,14 +2698,9 @@ private:
             BufferCoord end_coord{LineCount{(int)end_point.row},
                                   ByteCount{(int)end_point.column}};
 
-            try
-            {
-                Face face = context.context.faces()[face_name];
-                highlight_range(display_buffer, begin_coord, end_coord, false,
-                    apply_face(face));
-                m_cached_highlights.push_back({begin_coord, end_coord, face_name});
-            }
-            catch (runtime_error&) {}
+            highlight_range(display_buffer, begin_coord, end_coord, false,
+                apply_face(face));
+            m_cached_highlights.push_back({begin_coord, end_coord, face});
         }
     }
 
@@ -2757,17 +2765,10 @@ private:
             and end_byte == m_cached_end_byte
             and not m_cached_highlights.empty())
         {
-            // Replay cached highlights
+            // Replay cached highlights — Face already resolved at fill time.
             for (auto& ch : m_cached_highlights)
-            {
-                try
-                {
-                    Face face = context.context.faces()[ch.face_name];
-                    highlight_range(display_buffer, ch.begin, ch.end, false,
-                        apply_face(face));
-                }
-                catch (runtime_error&) {}
-            }
+                highlight_range(display_buffer, ch.begin, ch.end, false,
+                                apply_face(ch.face));
             return;
         }
 
@@ -2833,6 +2834,14 @@ struct RainbowBracketHighlighter : Highlighter
     }
 
 private:
+    // Viewport+timestamp cache for rainbow bracket highlights.
+    // Stores resolved Face so redraws skip both the tree walk and face lookup.
+    struct CachedBracket { BufferCoord begin; BufferCoord end; Face face; };
+    Vector<CachedBracket, MemoryDomain::Highlight> m_cached_brackets;
+    size_t m_cache_timestamp = -1u;
+    uint32_t m_cached_start_byte = 0;
+    uint32_t m_cached_end_byte = 0;
+
     static bool is_bracket_char(char c)
     {
         return c == '(' or c == ')' or c == '{' or c == '}' or c == '[' or c == ']';
@@ -2884,6 +2893,23 @@ private:
         uint32_t vis_end_byte = byte_index.byte_offset(clamped_end);
 
         auto& faces = context.context.faces();
+
+        // Cache hit: skip tree walk and face lookups.
+        if (syntax_tree.timestamp() == m_cache_timestamp
+            and vis_start_byte == m_cached_start_byte
+            and vis_end_byte == m_cached_end_byte
+            and not m_cached_brackets.empty())
+        {
+            for (auto& cb : m_cached_brackets)
+                highlight_range(display_buffer, cb.begin, cb.end, false,
+                                apply_face(cb.face));
+            return;
+        }
+
+        m_cached_brackets.clear();
+        m_cache_timestamp = syntax_tree.timestamp();
+        m_cached_start_byte = vis_start_byte;
+        m_cached_end_byte = vis_end_byte;
 
         // Collect all bracket nodes from the tree, then sort by position
         // and assign rainbow depth based on bracket nesting (not AST depth)
@@ -2961,6 +2987,12 @@ private:
             }
         } while (true);
 
+        // Pre-resolve rainbow faces once per redraw instead of per bracket.
+        const Face rainbow[6] = {
+            faces["ts_rainbow_1"], faces["ts_rainbow_2"], faces["ts_rainbow_3"],
+            faces["ts_rainbow_4"], faces["ts_rainbow_5"], faces["ts_rainbow_6"]
+        };
+
         // Now color brackets by nesting depth.
         // Walk through collected brackets in order, track nesting with a counter.
         // Opening bracket gets current depth, closing bracket gets depth-1.
@@ -2981,20 +3013,10 @@ private:
                 color_depth = nesting;
             }
 
-            static constexpr const char* rainbow_faces[] = {
-                "ts_rainbow_1", "ts_rainbow_2", "ts_rainbow_3",
-                "ts_rainbow_4", "ts_rainbow_5", "ts_rainbow_6"
-            };
-            int color_index = color_depth % 6;
-            StringView face_name{rainbow_faces[color_index]};
-
-            try
-            {
-                Face face = faces[face_name];
-                highlight_range(display_buffer, b.begin, b.end, false,
-                                apply_face(face));
-            }
-            catch (runtime_error&) {}
+            const Face face = rainbow[color_depth % 6];
+            highlight_range(display_buffer, b.begin, b.end, false,
+                            apply_face(face));
+            m_cached_brackets.push_back({b.begin, b.end, face});
         }
     }
 };
