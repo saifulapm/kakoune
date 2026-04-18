@@ -125,6 +125,8 @@ public:
 private:
     const LanguageConfig* load_language(StringView name);
     String resolve_query_inherits(StringView query_text, StringView query_type);
+    String resolve_query_inherits_rec(StringView query_text, StringView query_type,
+                                      HashSet<String>& visited);
 
     String m_helix_runtime_dir;
     String m_helix_config_dir;

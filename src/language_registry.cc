@@ -179,7 +179,10 @@ const LanguageConfig* LanguageRegistry::get(StringView name)
     return load_language(name);
 }
 
-static String node_text_for_predicate(TSNode node, const Buffer& buffer)
+// Returns a view into the buffer for single-line nodes (zero allocation).
+// For multi-line nodes, concatenates into `scratch` and returns a view of it.
+// The returned view is valid as long as the buffer and `scratch` are unchanged.
+static StringView node_text_view(TSNode node, const Buffer& buffer, String& scratch)
 {
     const TSPoint start = ts_node_start_point(node);
     const TSPoint end = ts_node_end_point(node);
@@ -187,7 +190,7 @@ static String node_text_for_predicate(TSNode node, const Buffer& buffer)
     if (start.row >= (uint32_t)(int)buffer.line_count())
         return {};
 
-    // Fast path: single-line node (common case for identifiers/keywords)
+    // Fast path: single-line node (common case for identifiers/keywords) — no alloc.
     if (start.row == end.row)
     {
         const StringView line = buffer[LineCount{(int)start.row}];
@@ -197,11 +200,11 @@ static String node_text_for_predicate(TSNode node, const Buffer& buffer)
             col_end = line.length();
         if (col_start >= col_end)
             return {};
-        return line.substr(col_start, col_end - col_start).str();
+        return line.substr(col_start, col_end - col_start);
     }
 
-    // Multi-line: concatenate
-    String result;
+    // Multi-line: concatenate into caller-provided scratch buffer.
+    scratch.clear();
     for (uint32_t row = start.row; row <= end.row
          and row < (uint32_t)(int)buffer.line_count(); ++row)
     {
@@ -211,9 +214,9 @@ static String node_text_for_predicate(TSNode node, const Buffer& buffer)
             ? ByteCount{(int)end.column}
             : line.length();
         if (col_start < col_end and col_end <= line.length())
-            result += line.substr(col_start, col_end - col_start);
+            scratch += line.substr(col_start, col_end - col_start);
     }
-    return result;
+    return scratch;
 }
 
 static void parse_single_predicate(const TSQuery* query,
@@ -396,6 +399,11 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
                       const Buffer& buffer,
                       Optional<uint32_t> new_line_byte_pos)
 {
+    // Reused across predicates in this match to avoid repeated heap churn on
+    // the rare multi-line path. Single-line captures don't touch these.
+    String scratch;
+    String scratch2;
+
     for (const auto& pred : predicates)
     {
         // Find the captured node for this predicate
@@ -413,7 +421,7 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
         if (not found)
             return false;
 
-        String text = node_text_for_predicate(node, buffer);
+        StringView text = node_text_view(node, buffer, scratch);
 
         switch (pred.type)
         {
@@ -422,12 +430,12 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
             {
                 // capture-vs-capture: find second capture
                 bool found2 = false;
-                String text2;
+                StringView text2;
                 for (uint16_t c = 0; c < match.capture_count; ++c)
                 {
                     if (match.captures[c].index == *pred.capture_id2)
                     {
-                        text2 = node_text_for_predicate(match.captures[c].node, buffer);
+                        text2 = node_text_view(match.captures[c].node, buffer, scratch2);
                         found2 = true;
                         break;
                     }
@@ -443,12 +451,12 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
             if (pred.capture_id2)
             {
                 bool found2 = false;
-                String text2;
+                StringView text2;
                 for (uint16_t c = 0; c < match.capture_count; ++c)
                 {
                     if (match.captures[c].index == *pred.capture_id2)
                     {
-                        text2 = node_text_for_predicate(match.captures[c].node, buffer);
+                        text2 = node_text_view(match.captures[c].node, buffer, scratch2);
                         found2 = true;
                         break;
                     }
@@ -574,6 +582,14 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
 //   ;+\s*inherits\s*:?\s*([a-z_,()-]+)\s*
 String LanguageRegistry::resolve_query_inherits(StringView query_text, StringView query_type)
 {
+    HashSet<String> visited;
+    return resolve_query_inherits_rec(query_text, query_type, visited);
+}
+
+String LanguageRegistry::resolve_query_inherits_rec(StringView query_text,
+                                                    StringView query_type,
+                                                    HashSet<String>& visited)
+{
     String result;
     for (auto line : query_text | split<StringView>('\n'))
     {
@@ -619,6 +635,15 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                 if (pb == pe) continue;
 
                 StringView parent_name{pb, pe};
+
+                // Cycle / dup guard: a language inheriting itself (directly or via
+                // A → B → A) would otherwise recurse until the stack overflows.
+                // Also dedupes diamond inheritance (A → B, A → C, B → D, C → D).
+                String visit_key = format("{}/{}", parent_name, query_type);
+                if (visited.contains(visit_key))
+                    continue;
+                visited.insert(visit_key);
+
                 String parent_path = resolve_path(m_helix_config_dir, m_helix_runtime_dir,
                     format("queries/{}/{}", parent_name, query_type));
                 try
@@ -626,8 +651,7 @@ String LanguageRegistry::resolve_query_inherits(StringView query_text, StringVie
                     String parent_text = read_file(parent_path);
                     if (not parent_text.empty())
                     {
-                        // Recursively resolve inherits in parent
-                        result += resolve_query_inherits(parent_text, query_type);
+                        result += resolve_query_inherits_rec(parent_text, query_type, visited);
                         result += '\n';
                     }
                 }
