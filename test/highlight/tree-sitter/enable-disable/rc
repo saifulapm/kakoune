@@ -1,4 +1,4 @@
-source "%val{runtime}/rc/base/tree-sitter.kak"
+source "%val{runtime}/rc/tools/tree-sitter.kak"
 set-option buffer filetype c
 add-highlighter buffer/tree-sitter tree-sitter
 remove-highlighter buffer/tree-sitter
