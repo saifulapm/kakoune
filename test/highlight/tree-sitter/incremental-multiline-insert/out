@@ -1,0 +1,7 @@
+int keep() {
+    return 0;
+}
+
+int mid() {
+    return 7;
+}

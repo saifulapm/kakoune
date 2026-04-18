@@ -1,0 +1,12 @@
+<html>
+<script>
+function alpha() {
+  return 111;
+}
+</script>
+<script>
+function beta() {
+  return 222;
+}
+</script>
+</html>

@@ -1,0 +1,1 @@
+/let x = 1<ret>cconst a = 10;<esc>/let y = 2<ret>cconst b = 20;<esc>ggO<esc>

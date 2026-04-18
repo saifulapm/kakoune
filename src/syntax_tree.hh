@@ -8,6 +8,8 @@
 #include "utils.hh"
 #include "vector.hh"
 
+#include <cstdint>
+
 namespace Kakoune
 {
 
@@ -31,6 +33,13 @@ struct InjectionLayer
     String language_name;
     const LanguageConfig* config = nullptr;  // not owned
     Vector<TSRange, MemoryDomain::Highlight> ranges;
+
+    // Identity for incremental reparse: the ts_node_id of the host content
+    // node that produced this layer (the first one, for combined injections).
+    // Survives host reparse iff the subtree was reused, so it's a reliable
+    // match key for pooling the layer's tree across edits. Stored as
+    // uintptr_t so HashMap can hash it directly.
+    uintptr_t content_node_id = 0;
 
     InjectionLayer() = default;
     ~InjectionLayer();
@@ -85,6 +94,10 @@ private:
     size_t m_timestamp = 0;
     size_t m_injection_timestamp = 0;
     Vector<InjectionLayer, MemoryDomain::Highlight> m_injection_layers;
+    // Edits applied to m_tree since last detect_injections call; replayed onto
+    // each pooled injection layer tree so they stay in the post-edit byte
+    // coordinate space before incremental reparse.
+    Vector<TSInputEdit, MemoryDomain::Highlight> m_pending_edits;
 };
 
 void create_syntax_tree(const Buffer& buffer, const LanguageConfig* config);

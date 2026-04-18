@@ -1,0 +1,1 @@
+/let a = 1<ret>cconst longer_name_than_before = 100<esc>/STRINGBODY<ret>: tree-query-cursor<ret>: set-register e %opt{tree_cursor_in_string}<ret>%c<c-r>e<esc>

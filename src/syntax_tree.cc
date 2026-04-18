@@ -68,11 +68,13 @@ InjectionLayer::InjectionLayer(InjectionLayer&& other) noexcept
       tree(other.tree),
       language_name(std::move(other.language_name)),
       config(other.config),
-      ranges(std::move(other.ranges))
+      ranges(std::move(other.ranges)),
+      content_node_id(other.content_node_id)
 {
     other.parser = nullptr;
     other.tree = nullptr;
     other.config = nullptr;
+    other.content_node_id = 0;
 }
 
 InjectionLayer& InjectionLayer::operator=(InjectionLayer&& other) noexcept
@@ -89,10 +91,12 @@ InjectionLayer& InjectionLayer::operator=(InjectionLayer&& other) noexcept
         language_name = std::move(other.language_name);
         config = other.config;
         ranges = std::move(other.ranges);
+        content_node_id = other.content_node_id;
 
         other.parser = nullptr;
         other.tree = nullptr;
         other.config = nullptr;
+        other.content_node_id = 0;
     }
     return *this;
 }
@@ -112,6 +116,22 @@ void SyntaxTree::full_parse(const Buffer& buffer)
     m_tree = ts_parser_parse(m_parser, nullptr, input);
     if (m_tree)
         m_timestamp = buffer.timestamp();
+
+    // Host subtrees were all regenerated, so content_node_id on any existing
+    // layer is stale — by_node matches would return wrong old_trees. Drop
+    // the layer trees (keep parsers for reuse). Pending edits are likewise
+    // meaningless for this case since layers can't reach back through a
+    // full reparse.
+    for (auto& layer : m_injection_layers)
+    {
+        if (layer.tree)
+        {
+            ts_tree_delete(layer.tree);
+            layer.tree = nullptr;
+        }
+        layer.content_node_id = 0;
+    }
+    m_pending_edits.clear();
 }
 
 SyntaxTree::SyntaxTree(const Buffer& buffer, const LanguageConfig* config)
@@ -153,7 +173,8 @@ SyntaxTree::SyntaxTree(SyntaxTree&& other) noexcept
       m_byte_index(std::move(other.m_byte_index)),
       m_timestamp(other.m_timestamp),
       m_injection_timestamp(other.m_injection_timestamp),
-      m_injection_layers(std::move(other.m_injection_layers))
+      m_injection_layers(std::move(other.m_injection_layers)),
+      m_pending_edits(std::move(other.m_pending_edits))
 {
     other.m_parser = nullptr;
     other.m_tree = nullptr;
@@ -177,6 +198,7 @@ SyntaxTree& SyntaxTree::operator=(SyntaxTree&& other) noexcept
         m_timestamp = other.m_timestamp;
         m_injection_timestamp = other.m_injection_timestamp;
         m_injection_layers = std::move(other.m_injection_layers);
+        m_pending_edits = std::move(other.m_pending_edits);
 
         other.m_parser = nullptr;
         other.m_tree = nullptr;
@@ -205,6 +227,10 @@ void SyntaxTree::update(const Buffer& buffer)
         auto forward_end = forward_sorted_until(changes.begin(), changes.end());
         if (forward_end != changes.end())
         {
+            // Full reparse — any buffered injection edits are meaningless
+            // since we're rebuilding from scratch. detect_injections will
+            // see an empty edit list and take the no-pool-match path.
+            m_pending_edits.clear();
             full_parse(buffer);
             return;
         }
@@ -220,6 +246,7 @@ void SyntaxTree::update(const Buffer& buffer)
     // byte length of the inserted content — we compute this from the change
     // coordinates since we know the exact line/column extent.
 
+    m_pending_edits.reserve(m_pending_edits.size() + changes.size());
     for (int i = (int)changes.size() - 1; i >= 0; --i)
     {
         auto& change = changes[(size_t)i];
@@ -279,6 +306,9 @@ void SyntaxTree::update(const Buffer& buffer)
         }
 
         ts_tree_edit(m_tree, &edit);
+        // Record for later replay onto pooled injection layer trees so they
+        // land in the same post-edit byte coordinate space.
+        m_pending_edits.push_back(edit);
     }
 
     // Rebuild byte index from the final buffer state
@@ -325,6 +355,10 @@ struct PendingInjection
     String language_name;
     Vector<TSRange, MemoryDomain::Highlight> ranges;
     bool combined;
+    // Identity key for the host content node that produced this injection
+    // (the first one, for combined injections). Used to match against the
+    // pool of surviving layers from the previous pass.
+    uintptr_t content_node_id = 0;
 };
 
 // Collect injection ranges from a tree using an injection query
@@ -424,6 +458,10 @@ static void collect_injections_from_tree(
             p.language_name = std::move(lang_name);
             p.ranges.push_back(range);
             p.combined = is_combined;
+            // Node id survives incremental reparse when the subtree is reused,
+            // letting us match this pending injection against a pooled layer
+            // tree from the previous pass.
+            p.content_node_id = reinterpret_cast<uintptr_t>(content_node.id);
             pending.push_back(std::move(p));
         }
     }
@@ -439,10 +477,103 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
         return;
     m_injection_timestamp = m_timestamp;
 
-    m_injection_layers.clear();
-
     if (not LanguageRegistry::has_instance())
+    {
+        m_injection_layers.clear();
+        m_pending_edits.clear();
         return;
+    }
+
+    // Move previous layers into two pools:
+    //  - by_node: keyed on host content node id. Survives incremental host
+    //    reparse iff the subtree was reused, so a match here means we can
+    //    reuse the layer's tree as old_tree for ts_parser_parse (incremental
+    //    reparse of the injection).
+    //  - by_lang: fallback when node identity is lost. Parser is still
+    //    reused but the stale tree is dropped.
+    struct PooledLayer
+    {
+        TSParser* parser;
+        TSTree* tree;  // edit-translated; usable as old_tree, or null
+        String language_name;
+    };
+    HashMap<uintptr_t, PooledLayer, MemoryDomain::Highlight> by_node;
+    HashMap<String, Vector<PooledLayer>, MemoryDomain::Highlight> by_lang;
+
+    const bool have_edits = not m_pending_edits.empty();
+    for (auto& layer : m_injection_layers)
+    {
+        if (not layer.parser)
+            continue;
+
+        // Translate the layer tree into the post-edit coordinate space.
+        // Without this, byte offsets embedded in the tree reference a buffer
+        // state that no longer exists.
+        if (layer.tree and have_edits)
+        {
+            for (auto& edit : m_pending_edits)
+                ts_tree_edit(layer.tree, &edit);
+        }
+
+        PooledLayer p{layer.parser, layer.tree, layer.language_name};
+        if (layer.content_node_id and by_node.find(layer.content_node_id) == by_node.end())
+            by_node.insert({layer.content_node_id, p});
+        else
+            by_lang[layer.language_name].push_back(p);
+
+        layer.parser = nullptr;
+        layer.tree = nullptr;
+    }
+    m_injection_layers.clear();
+    m_pending_edits.clear();
+
+    auto acquire_for = [&](uintptr_t node_id, const String& lang,
+                           TSLanguage* ts_lang) -> PooledLayer
+    {
+        // 1) Exact node-id match → parser + old tree for incremental reparse.
+        if (node_id)
+        {
+            auto it = by_node.find(node_id);
+            if (it != by_node.end())
+            {
+                PooledLayer p = it->value;
+                by_node.remove(it);
+                if (p.language_name == lang)
+                    return p;
+                // Language drift at the same node id (shouldn't happen but
+                // defend): drop stale tree, fall through to fresh parser.
+                if (p.tree)
+                    ts_tree_delete(p.tree);
+                if (p.parser)
+                    ts_parser_delete(p.parser);
+            }
+        }
+
+        // 2) Language-pool match → parser only, no old tree.
+        auto lit = by_lang.find(lang);
+        if (lit != by_lang.end() and not lit->value.empty())
+        {
+            PooledLayer p = lit->value.back();
+            lit->value.pop_back();
+            if (p.tree)
+            {
+                ts_tree_delete(p.tree);
+                p.tree = nullptr;
+            }
+            return p;
+        }
+
+        // 3) Fresh parser.
+        TSParser* parser = ts_parser_new();
+        if (not parser)
+            return {nullptr, nullptr, {}};
+        if (not ts_parser_set_language(parser, ts_lang))
+        {
+            ts_parser_delete(parser);
+            return {nullptr, nullptr, {}};
+        }
+        return {parser, nullptr, lang};
+    };
 
     // Queue-based recursive injection detection (matches Helix algorithm):
     // Process root tree first, then each injection layer's tree, discovering
@@ -479,17 +610,15 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
                 layer.language_name = std::move(p.language_name);
                 layer.config = inj_config;
                 layer.ranges = std::move(p.ranges);
+                layer.content_node_id = p.content_node_id;
 
-                layer.parser = ts_parser_new();
-                if (not layer.parser)
+                PooledLayer pooled = acquire_for(p.content_node_id,
+                                                 layer.language_name,
+                                                 inj_config->language());
+                if (not pooled.parser)
                     continue;
 
-                if (not ts_parser_set_language(layer.parser, inj_config->language()))
-                {
-                    ts_parser_delete(layer.parser);
-                    layer.parser = nullptr;
-                    continue;
-                }
+                layer.parser = pooled.parser;
 
                 ts_parser_set_included_ranges(layer.parser, layer.ranges.data(),
                                               (uint32_t)layer.ranges.size());
@@ -499,7 +628,15 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
                 input.read = ts_input_read;
                 input.encoding = TSInputEncodingUTF8;
 
-                layer.tree = ts_parser_parse(layer.parser, nullptr, input);
+                // Incremental reparse when we have an edit-translated old
+                // tree; otherwise from-scratch. Tree-sitter does not free
+                // the old tree on our behalf, so dispose of it if the parse
+                // returned a distinct new tree.
+                TSTree* old_tree = pooled.tree;
+                layer.tree = ts_parser_parse(layer.parser, old_tree, input);
+                if (old_tree and old_tree != layer.tree)
+                    ts_tree_delete(old_tree);
+
                 if (layer.tree)
                 {
                     // Queue this layer for sub-injection detection if it has an injection query
@@ -507,12 +644,31 @@ void SyntaxTree::detect_injections(const Buffer& buffer)
                         next_queue.push_back({layer.tree, inj_config});
                     m_injection_layers.push_back(std::move(layer));
                 }
+                else if (layer.parser)
+                {
+                    ts_parser_delete(layer.parser);
+                    layer.parser = nullptr;
+                }
             }
         }
 
         queue = std::move(next_queue);
         ++depth;
     }
+
+    // Dispose of pool leftovers we didn't reuse.
+    auto dispose = [](PooledLayer& p)
+    {
+        if (p.tree)
+            ts_tree_delete(p.tree);
+        if (p.parser)
+            ts_parser_delete(p.parser);
+    };
+    for (auto& slot : by_node)
+        dispose(slot.value);
+    for (auto& slot : by_lang)
+        for (auto& p : slot.value)
+            dispose(p);
 }
 
 static const ValueId syntax_tree_id = get_free_value_id();
