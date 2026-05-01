@@ -102,17 +102,19 @@ struct CompiledRegex : UseMemoryDomain<MemoryDomain::Regex>
 
     union Param
     {
+        using bool_t = uint8_t; // on ppc bool can be 4 bytes, which breaks packing of this union
+
         struct Literal
         {
             uint32_t codepoint : 24;
-            bool ignore_case : 1;
+            bool_t ignore_case : 1;
         } literal;
         struct CharRange
         {
             uint8_t min;
             uint8_t max;
-            bool ignore_case : 1;
-            bool negative;
+            bool_t ignore_case : 1;
+            bool_t negative;
         } range;
         CharacterType character_type;
         int16_t character_class_index;
@@ -121,17 +123,17 @@ struct CompiledRegex : UseMemoryDomain<MemoryDomain::Regex>
         struct Split
         {
             int16_t offset;
-            bool prioritize_parent : 1;
+            bool_t prioritize_parent : 1;
         } split;
-        bool line_start;
-        bool subject_begin;
-        bool word_boundary_positive;
+        bool_t line_start;
+        bool_t subject_begin;
+        bool_t word_boundary_positive;
         struct Lookaround
         {
             int16_t index;
-            bool ahead : 1;
-            bool positive : 1;
-            bool ignore_case : 1;
+            bool_t ahead : 1;
+            bool_t positive : 1;
+            bool_t ignore_case : 1;
         } lookaround;
     };
     static_assert(sizeof(Param) == 4);
@@ -142,9 +144,7 @@ struct CompiledRegex : UseMemoryDomain<MemoryDomain::Regex>
         mutable uint16_t last_step; // mutable as used during execution
         Param param;
     };
-#ifndef __ppc__
     static_assert(sizeof(Instruction) == 8);
-#endif
 
     explicit operator bool() const { return not instructions.empty(); }
 
