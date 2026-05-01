@@ -103,7 +103,7 @@ define-command -hidden dart-indent-on-new-line %~
         # cleanup trailing white spaces on the previous line
         try %{ execute-keys -draft kx s \h+$ <ret>d }
         # align to opening paren of previous line
-        try %{ execute-keys -draft [( <a-k> \A\([^\n]+\n[^\n]*\n?\z <ret> s \A\(\h*.|.\z <ret> '<a-;>' & }
+        try %{ execute-keys -draft [( <a-k> \A\(\N+\n\N*\n?\z <ret> s \A\(\h*.|.\z <ret> '<a-;>' & }
         # indent after a switch's case/default statements
         try %[ execute-keys -draft kx <a-k> ^\h*(case|default).*:$ <ret> j<a-gt> ]
         # indent after if|else|while|for

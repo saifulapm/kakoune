@@ -53,8 +53,8 @@ define-command -hidden just-indent-on-new-line %{
 add-highlighter shared/justfile regions
 
 add-highlighter shared/justfile/content default-region group
-add-highlighter shared/justfile/content/recipe regex '^@?([\w-]+)([^\n]*):(?!=)([^\n]*)' 1:function 2:meta 3:keyword
-add-highlighter shared/justfile/content/assignments regex ^([\w-]+\h*:=\h*[^\n]*) 1:meta
+add-highlighter shared/justfile/content/recipe regex '^@?([\w-]+)(\N*):(?!=)(\N*)' 1:function 2:meta 3:keyword
+add-highlighter shared/justfile/content/assignments regex ^([\w-]+\h*:=\h*\N*) 1:meta
 add-highlighter shared/justfile/content/operator regex '((^@|:=|=|\+|\(|\)))' 1:operator
 add-highlighter shared/justfile/content/strings regions
 add-highlighter shared/justfile/content/strings/double region '"' (?<!\\)(\\\\)*" fill string

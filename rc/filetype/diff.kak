@@ -15,11 +15,11 @@ hook -group diff-highlight global WinSetOption filetype=diff %{
 provide-module diff %§
 
 add-highlighter shared/diff group
-add-highlighter shared/diff/ regex "^\+[^\n]*\n" 0:green,default
-add-highlighter shared/diff/ regex "^-[^\n]*\n" 0:red,default
-add-highlighter shared/diff/ regex "^@@[^\n]*@@" 0:cyan,default
+add-highlighter shared/diff/ regex "^\+\N*\n" 0:green,default
+add-highlighter shared/diff/ regex "^-\N*\n" 0:red,default
+add-highlighter shared/diff/ regex "^@@\N*@@" 0:cyan,default
 # If any trailing whitespace was introduced in diff, show it with red background
-add-highlighter shared/diff/ regex "^\+[^\n]*?(\h+)\n" 1:default,red
+add-highlighter shared/diff/ regex "^\+\N*?(\h+)\n" 1:default,red
 
 define-command diff-jump -params .. -docstring %{
         diff-jump [<switches>] [<directory>]: edit the diff's source file at the cursor position.
@@ -65,7 +65,7 @@ define-command diff-jump -params .. -docstring %{
                 my $diff_column = %reg{c};
                 $file_column = $diff_column - 1; # Account for [ +-] diff prefix.
                 # If the cursor was on a hunk header, go to the section header if possible.
-                if ($diff_line_text =~ m{^(@@ -\d+(?:,\d+)? \+\d+(?:,\d+) @@ )([^\n]*)}) {
+                if ($diff_line_text =~ m{^(@@ -\d+(?:,\d+)? \+\d+(?:,\d+) @@ )(\N*)}) {
                     my $hunk_header_prefix = $1;
                     my $hunk_header_from_userdiff = $2;
                     open FILE, "<", $file or fail "failed to open file: $!: $file";

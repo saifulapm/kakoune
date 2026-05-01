@@ -74,7 +74,7 @@ define-command -hidden javascript-insert-on-new-line %<
         execute-keys -draft kx <a-k>^(\h*/\*|\h+\*(?!/))<ret>
 
         # find comment opening, validate it was not closed, and check its using star prefixes
-        execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*([^\n]*\n\h*\*)*[^\n]*\n\h*.\z<ret>
+        execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*(\N*\n\h*\*)*\N*\n\h*.\z<ret>
 
         try %[
             # if the previous line is opening the comment, insert star preceeded by space
@@ -113,7 +113,7 @@ define-command -hidden javascript-indent-on-new-line %<
     > catch %<
         # else if previous line closed a paren (possibly followed by words and a comment),
         # copy indent of the opening paren line
-        execute-keys -draft kx 1s(\))(\h+\w+)*\h*(\;\h*)?(?://[^\n]+)?\n\z<ret> m<a-semicolon>J <a-S> 1<a-&>
+        execute-keys -draft kx 1s(\))(\h+\w+)*\h*(\;\h*)?(?://\N+)?\n\z<ret> m<a-semicolon>J <a-S> 1<a-&>
     > catch %<
         # else indent new lines with the same level as the previous one
         execute-keys -draft K <a-&>
@@ -125,16 +125,16 @@ define-command -hidden javascript-indent-on-new-line %<
     # indent after a label (works for case statements)
     try %< execute-keys -draft k x s[a-zA-Z0-9_-]+:\h*$<ret> j <a-gt> >
     # indent after a statement not followed by an opening brace
-    try %< execute-keys -draft k x s\)\h*(?://[^\n]+)?\n\z<ret> \
+    try %< execute-keys -draft k x s\)\h*(?://\N+)?\n\z<ret> \
                                <a-semicolon>mB <a-k>\A\b(if|for|while)\b<ret> <a-semicolon>j <a-gt> >
-    try %< execute-keys -draft k x s \belse\b\h*(?://[^\n]+)?\n\z<ret> \
+    try %< execute-keys -draft k x s \belse\b\h*(?://\N+)?\n\z<ret> \
                                j <a-gt> >
     # deindent after a single line statement end
-    try %< execute-keys -draft K x <a-k>\;\h*(//[^\n]+)?$<ret> \
-                               K x s\)(\h+\w+)*\h*(//[^\n]+)?\n([^\n]*\n){2}\z<ret> \
+    try %< execute-keys -draft K x <a-k>\;\h*(//\N+)?$<ret> \
+                               K x s\)(\h+\w+)*\h*(//\N+)?\n(\N*\n){2}\z<ret> \
                                MB <a-k>\A\b(if|for|while)\b<ret> <a-S>1<a-&> >
-    try %< execute-keys -draft K x <a-k>\;\h*(//[^\n]+)?$<ret> \
-                               K x s \belse\b\h*(?://[^\n]+)?\n([^\n]*\n){2}\z<ret> \
+    try %< execute-keys -draft K x <a-k>\;\h*(//\N+)?$<ret> \
+                               K x s \belse\b\h*(?://\N+)?\n(\N*\n){2}\z<ret> \
                                <a-S>1<a-&> >
     # deindent closing brace(s) when after cursor
     try %< execute-keys -draft x <a-k> ^\h*[})] <ret> gh / [})] <esc> m <a-S> 1<a-&> >

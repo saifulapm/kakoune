@@ -35,7 +35,7 @@ add-highlighter shared/taskpaper group
 add-highlighter shared/taskpaper/ regex ^\h*([^:\n]+):\h*\n 1:header
 add-highlighter shared/taskpaper/ regex \h@\w+(?:\(([^)]*)\))? 0:variable 1:value
 add-highlighter shared/taskpaper/ regex ^\h*([^-:\n]+)\n 1:+i
-add-highlighter shared/taskpaper/ regex ^\h*-\h+[^\n]*@done[^\n]* 0:+d
+add-highlighter shared/taskpaper/ regex ^\h*-\h+\N*@done\N* 0:+d
 add-highlighter shared/taskpaper/ regex \b(([a-z]+://\S+)|((mailto:)[\w+-]+@\S+)) 0:link
 
 # Commands

@@ -120,7 +120,7 @@ define-command -hidden kotlin-indent-on-new-line %~
     # cleanup trailing white spaces on the previous line
     try %{ execute-keys -draft kx s \h+$ <ret>d }
     # align to opening paren of previous line
-    try %{ execute-keys -draft [( <a-k> \A\([^\n]+\n[^\n]*\n?\z <ret> s \A\(\h*.|.\z <ret> '<a-;>' & }
+    try %{ execute-keys -draft [( <a-k> \A\(\N+\n\N*\n?\z <ret> s \A\(\h*.|.\z <ret> '<a-;>' & }
     # indent after a pattern match on when/where statements
     try %[ execute-keys -draft kx <a-k> ^\h*(when|where).*$ <ret> j<a-gt> ]
     # indent after term on an expression

@@ -25,6 +25,6 @@ add-highlighter shared/conf/code default-region group
 add-highlighter shared/conf/comment region '(^|\h)\K#' $ fill comment
 
 add-highlighter shared/conf/code/ regex "(?S)^\h*(\[.+?\])\h*$" 1:title
-add-highlighter shared/conf/code/ regex "^\h*([^\[][^=\n]*)=([^\n]*)" 1:variable 2:value
+add-highlighter shared/conf/code/ regex "^\h*([^\[][^=\n]*)=(\N*)" 1:variable 2:value
 
 }

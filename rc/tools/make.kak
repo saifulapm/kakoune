@@ -1,7 +1,7 @@
 declare-option -docstring "shell command run to build the project" \
     str makecmd make
 declare-option -docstring "pattern that describes lines containing information about errors in the output of the `makecmd` command. Capture groups must be: 1: filename 2: line number 3: optional column 4: optional error description" \
-    regex make_error_pattern "^([^:\n]+):(\d+):(?:(\d+):)? (?:fatal )?error:([^\n]+)?"
+    regex make_error_pattern "^([^:\n]+):(\d+):(?:(\d+):)? (?:fatal )?error:(\N+)?"
 
 provide-module make %{
 
@@ -58,7 +58,7 @@ define-command -hidden make-jump %{
             try %{
                 execute-keys gl<a-?> "Entering directory" <ret><a-:>
                 # Try to parse the error into capture groups, failing on absolute paths
-                execute-keys s "Entering directory [`']([^']+)'.*\n([^:\n/][^:\n]*):(\d+):(?:(\d+):)?([^\n]+)\n?\z" <ret>l
+                execute-keys s "Entering directory [`']([^']+)'.*\n([^:\n/][^:\n]*):(\d+):(?:(\d+):)?(\N+)\n?\z" <ret>l
                 set-option buffer jump_current_line %val{cursor_line}
                 set-register a "%reg{1}/%reg{2}" "%reg{3}" "%reg{4}" "%reg{5}"
             } catch %{
@@ -68,7 +68,7 @@ define-command -hidden make-jump %{
                     set-register / "\A%opt{make_error_pattern}"
                     execute-keys s<ret>l
                 } catch %{ # fallback on common error pattern so that explicit jumps on warning/note lines still work
-                    set-register / "\A^([^:\n]+):(\d+):(?:(\d+):)? ([^\n]+)?"
+                    set-register / "\A^([^:\n]+):(\d+):(?:(\d+):)? (\N+)?"
                     execute-keys s<ret>l
                 }
                 set-option buffer jump_current_line %val{cursor_line}

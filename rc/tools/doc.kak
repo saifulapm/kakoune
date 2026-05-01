@@ -39,7 +39,7 @@ define-command -hidden doc-parse-anchors %{
     evaluate-commands -draft %{ try %{
         set-option buffer doc_anchors %val{timestamp}
         # Find sections as add them as imlicit anchors
-        execute-keys <percent> s ^={2,}\h+([^\n]+)$ <ret>
+        execute-keys <percent> s ^={2,}\h+(\N+)$ <ret>
         evaluate-commands -itersel %{
             set-option -add buffer doc_anchors "%val{selection_desc}|%sh{printf '%s' ""$kak_main_reg_1"" | tr '[A-Z ]' '[a-z-]'}"
         }
@@ -105,7 +105,7 @@ define-command -params 1 -hidden doc-render %{
 
     # Join paragraphs together
     try %{
-        execute-keys -draft '%S\n{2,}|(?<lt>=\+)\n|^[^\n]+::\n|^\h*[*-]\h+<ret>' \
+        execute-keys -draft '%S\n{2,}|(?<lt>=\+)\n|^\N+::\n|^\h*[*-]\h+<ret>' \
             <a-K>^\h*-{2,}(\n|\z)<ret> S\n\z<ret> <a-k>\n<ret> <a-j>
     }
 
@@ -114,11 +114,11 @@ define-command -params 1 -hidden doc-render %{
 
     # Setup the doc_render_ranges option
     set-option buffer doc_render_ranges %val{timestamp}
-    doc-render-regex \B(?<!\\)\*(?=\S)[^\n]+?(?<=\S)(?<!\\)\*\B \A|.\z 'H' default+b
-    doc-render-regex \b(?<!\\)_(?=\S)[^\n]+?(?<=\S)(?<!\\)_\b \A|.\z 'H' default+i
-    doc-render-regex \B(?<!\\)`(?=\S)[^\n]+?(?<=\S)`\B \A|.\z 'H' mono
-    doc-render-regex ^=\h+[^\n]+ ^=\h+ '~' title
-    doc-render-regex ^={2,}\h+[^\n]+ ^={2,}\h+ '' header
+    doc-render-regex \B(?<!\\)\*(?=\S)\N+?(?<=\S)(?<!\\)\*\B \A|.\z 'H' default+b
+    doc-render-regex \b(?<!\\)_(?=\S)\N+?(?<=\S)(?<!\\)_\b \A|.\z 'H' default+i
+    doc-render-regex \B(?<!\\)`(?=\S)\N+?(?<=\S)`\B \A|.\z 'H' mono
+    doc-render-regex ^=\h+\N+ ^=\h+ '~' title
+    doc-render-regex ^={2,}\h+\N+ ^={2,}\h+ '' header
     doc-render-regex ^\h*-{2,}\n\h*.*?^\h*-{2,}\n ^\h*-{2,}\n '' block
 
     doc-parse-links

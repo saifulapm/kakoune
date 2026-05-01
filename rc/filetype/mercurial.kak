@@ -31,7 +31,7 @@ add-highlighter shared/hg-commit regions
 add-highlighter shared/hg-commit/comments region ^HG:\  $ group
 add-highlighter shared/hg-commit/comments/ fill comment
 add-highlighter shared/hg-commit/comments/ regex \
-	"\b(?:(changed)|(removed)|(added)|(bookmark)|(branch)|(user:)) ([^\n]*)$" \
+	"\b(?:(changed)|(removed)|(added)|(bookmark)|(branch)|(user:)) (\N*)$" \
 	      1:yellow  2:red     3:green 4:blue     5:magenta 6:white
 
 }

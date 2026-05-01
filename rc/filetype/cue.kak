@@ -142,7 +142,7 @@ define-command -hidden cue-indent-on-new-line %~
             # indent after lines ending with { or (
             try %[ execute-keys -draft k x <a-k> [{(]\h*$ <ret> j <a-gt> ]
             # indent after lines ending with [{(].+ and move first parameter to own line
-            try %< execute-keys -draft [c[({],[)}] <ret> <a-k> \A[({][^\n]+\n[^\n]*\n?\z <ret> L i<ret><esc> <gt> <a-S> <a-&> >
+            try %< execute-keys -draft [c[({],[)}] <ret> <a-k> \A[({]\N+\n\N*\n?\z <ret> L i<ret><esc> <gt> <a-S> <a-&> >
             # deindent closing brace(s) when after cursor
             try %< execute-keys -draft x <a-k> ^\h*[})] <ret> gh / [})] <ret>  m <a-S> 1<a-&> >
         >

@@ -75,11 +75,11 @@ try %{
 add-highlighter shared/markdown/inline/code region -match-capture (`+) (`+) fill mono
 
 # Setext-style header
-add-highlighter shared/markdown/inline/text/ regex (\A|^\n)[^\n]+\n={2,}\h*\n\h*$ 0:title
-add-highlighter shared/markdown/inline/text/ regex (\A|^\n)[^\n]+\n-{2,}\h*\n\h*$ 0:header
+add-highlighter shared/markdown/inline/text/ regex (\A|^\n)\N+\n={2,}\h*\n\h*$ 0:title
+add-highlighter shared/markdown/inline/text/ regex (\A|^\n)\N+\n-{2,}\h*\n\h*$ 0:header
 
 # Atx-style header
-add-highlighter shared/markdown/inline/text/ regex ^#[^\n]* 0:header
+add-highlighter shared/markdown/inline/text/ regex ^#\N* 0:header
 
 add-highlighter shared/markdown/inline/text/ regex (?<!\*)(\*([^\s*]|([^\s*](\n?[^\n*])*[^\s*]))\*)(?!\*) 1:+i
 add-highlighter shared/markdown/inline/text/ regex (?<!_)(_([^\s_]|([^\s_](\n?[^\n_])*[^\s_]))_)(?!_) 1:+i
@@ -98,10 +98,10 @@ define-command markdown-load-languages -params 1 %{
             require-module %val{selection}
             add-highlighter "shared/markdown/codeblock/%val{selection}" region -match-capture "^(\h*)```\h*(%val{selection}\b|\{[.=]?%val{selection}(?:[\h,][^\{\}]*)?\})" ^(\h*)``` regions
             add-highlighter "shared/markdown/codeblock/%val{selection}/" default-region fill meta
-            add-highlighter "shared/markdown/codeblock/%val{selection}/inner" region \A\h*```[^\n]*\K (?=```) ref %val{selection}
+            add-highlighter "shared/markdown/codeblock/%val{selection}/inner" region \A\h*```\N*\K (?=```) ref %val{selection}
             add-highlighter "shared/markdown/listblock/codeblock/%val{selection}" region -match-capture "^(\h*)```\h*(%val{selection}\b|\{[.=]?%val{selection}\})" ^(\h*)``` regions
             add-highlighter "shared/markdown/listblock/codeblock/%val{selection}/" default-region fill meta
-            add-highlighter "shared/markdown/listblock/codeblock/%val{selection}/inner" region \A\h*```[^\n]*\K (?=```) ref %val{selection}
+            add-highlighter "shared/markdown/listblock/codeblock/%val{selection}/inner" region \A\h*```\N*\K (?=```) ref %val{selection}
         }}
     }}
 }
