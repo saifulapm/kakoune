@@ -1,0 +1,4 @@
+ui_out '{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }'
+ui_out '{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "────────────────────────────────────────────────────────────────────────────────" }], [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "\u000a" }], [{ "face": { "fg": "black", "bg": "white", "underline": "default", "attributes": [] }, "contents": "e" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "cho hello\u000a" }]], { "line": 2, "column": 0 }, { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, 0] }'
+ui_out -until '{ "jsonrpc": "2.0", "method": "refresh", "params": [true] }'
+

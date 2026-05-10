@@ -701,7 +701,7 @@ struct WrapHighlighter : Highlighter
                 last_WORD_boundary = pos;
         };
 
-        if (pos.atom_it->type() != DisplayAtom::Range and pos.atom_it->length() > wrap_column)
+        if (pos.atom_it->type() != DisplayAtom::Range and pos.column + pos.atom_it->length() >= wrap_column)
         {
             ++pos.atom_it;
             return true;
@@ -709,9 +709,6 @@ struct WrapHighlighter : Highlighter
 
         while (pos.atom_it != line_end and pos.column < wrap_column)
         {
-            if (pos.atom_it->type() != DisplayAtom::Range and pos.column + pos.atom_it->length() > wrap_column)
-                return true;
-
             auto content = pos.atom_it->content();
             const char* it = &content[pos.byte];
             const Codepoint cp = utf8::read_codepoint(it, content.end());
@@ -728,6 +725,11 @@ struct WrapHighlighter : Highlighter
             {
                 ++pos.atom_it;
                 pos.byte = 0;
+
+                if (pos.atom_it != line_end and pos.atom_it->type() != DisplayAtom::Range and
+                    pos.column + pos.atom_it->length() >= wrap_column)
+                    return true;
+
                 // Thanks to the pass ordering, atom boundary should always be reasonable word split points
                 last_word_boundary = pos;
                 last_WORD_boundary = pos;

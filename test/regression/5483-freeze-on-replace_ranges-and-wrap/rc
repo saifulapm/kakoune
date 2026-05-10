@@ -1,0 +1,5 @@
+add-highlighter global/ wrap
+declare-option -hidden range-specs focus_hidden_lines
+execute-keys 15j
+set-option window focus_hidden_lines 1 1.1,12.1|──────────────────────────────────────────────────────────────────────────────── # your debug log output
+add-highlighter window/focus-hidden replace-ranges focus_hidden_lines # crashing command
