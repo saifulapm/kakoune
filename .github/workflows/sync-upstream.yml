@@ -56,8 +56,11 @@ jobs:
               continue
             fi
 
-            git checkout main
-            git checkout -b "$BRANCH"
+            # Skip merge commits — cherry-pick needs -m and the result rarely makes sense as a standalone PR
+            if [ "$(git rev-list --no-walk --merges "$SHA")" = "$SHA" ]; then
+              echo "Commit $SHORT is a merge — skipping"
+              continue
+            fi
 
             # Skip commits that only touch .github/workflows (GITHUB_TOKEN cannot push there)
             FILES=$(git show --name-only --format= "$SHA")
@@ -67,10 +70,13 @@ jobs:
             fi
 
             # Skip commits that touch no files (e.g. copyright waivers)
-            if [ -z "$(git show --name-only --format= "$SHA")" ]; then
+            if [ -z "$FILES" ]; then
               echo "Commit $SHORT has no file changes — skipping"
               continue
             fi
+
+            git checkout main
+            git checkout -b "$BRANCH"
 
             if git cherry-pick --allow-empty "$SHA"; then
               # Drop any .github/workflows changes from the cherry-pick
@@ -93,7 +99,7 @@ jobs:
                 -f head="$BRANCH"
             else
               echo "::warning title=Sync conflict::Cherry-picking $SHORT ($SUBJECT) conflicts with this fork — skipping. Resolve manually with: git fetch upstream && git checkout -b sync/$SHORT && git cherry-pick $SHA"
-              git cherry-pick --abort
+              git cherry-pick --abort 2>/dev/null || true
             fi
           done
 
