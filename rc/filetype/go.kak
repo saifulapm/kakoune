@@ -113,7 +113,7 @@ define-command -hidden go-indent-on-new-line %~
             }
         > catch %<
             # indent after lines with an unclosed { or (
-            try %< execute-keys -draft [c[({],[)}] <ret> <a-k> \A[({][^\n]*\n[^\n]*\n?\z <ret> j<a-gt> >
+            try %< execute-keys -draft [c[({],[)}] <ret> <a-k> \A[({]\N*\n\N*\n?\z <ret> j<a-gt> >
             # indent after a switch's case/default statements
             try %[ execute-keys -draft kx <a-k> ^\h*(case|default).*:$ <ret> j<a-gt> ]
             # deindent closing brace(s) when after cursor

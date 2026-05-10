@@ -48,7 +48,7 @@ add-highlighter shared/git-commit regions
 add-highlighter shared/git-commit/diff region '^diff --git' '^(?=diff --git)' ref diff # highlight potential diffs from the -v option
 add-highlighter shared/git-commit/comments region ^# $ group
 add-highlighter shared/git-commit/comments/ fill comment
-add-highlighter shared/git-commit/comments/ regex "\b(?:(modified)|(deleted)|(new file)|(renamed|copied)):([^\n]*)$" 1:yellow 2:red 3:green 4:blue 5:magenta
+add-highlighter shared/git-commit/comments/ regex "\b(?:(modified)|(deleted)|(new file)|(renamed|copied)):(\N*)$" 1:yellow 2:red 3:green 4:blue 5:magenta
 }
 
 provide-module git-ignore %{
@@ -59,11 +59,11 @@ add-highlighter shared/git-ignore/comments regex '^#.*?$' 0:comment
 }
 
 provide-module git-notes %{
-add-highlighter shared/git-notes regex ^#[^\n]*$ 0:comment
+add-highlighter shared/git-notes regex ^#\N*$ 0:comment
 }
 
 provide-module git-rebase %{
 add-highlighter shared/git-rebase group
-add-highlighter shared/git-rebase/ regex "^\h*#[^\n]*\n" 0:comment
+add-highlighter shared/git-rebase/ regex "^\h*#\N*\n" 0:comment
 add-highlighter shared/git-rebase/ regex "^(?:(pick|p)|(edit|reword|squash|fixup|exec|break|drop|label|reset|merge|[ersfxbdltm])) (\w+)" 1:keyword 2:value 3:meta
 }

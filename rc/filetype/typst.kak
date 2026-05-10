@@ -24,13 +24,13 @@ provide-module typst %§
 add-highlighter shared/typst group
 
 # Comments
-add-highlighter shared/typst/ regex ^//(?:[^\n/][^\n]*|)$ 0:comment
+add-highlighter shared/typst/ regex ^//(?:[^\n/]\N*|)$ 0:comment
 
 # Strings
 add-highlighter shared/typst/ regex '"[^"]*"' 0:string
 
 # Headings
-add-highlighter shared/typst/ regex ^=+\h+[^\n]+$ 0:header
+add-highlighter shared/typst/ regex ^=+\h+\N+$ 0:header
 
 # Code blocks
 # Raw with optional syntax highlighting
@@ -39,8 +39,8 @@ add-highlighter shared/typst/ regex '^```[^(```)]*```' 0:mono
 add-highlighter shared/typst/ regex '^`[^(`)]*`' 0:mono
 
 # Monospace text
-add-highlighter shared/typst/ regex \B(`[^\n]+?`)\B 0:mono
-add-highlighter shared/typst/ regex \B(```[^\n]+?```)\B 0:mono
+add-highlighter shared/typst/ regex \B(`\N+?`)\B 0:mono
+add-highlighter shared/typst/ regex \B(```\N+?```)\B 0:mono
 
 # Bold text
 add-highlighter shared/typst/ regex \s\*[^\*]+\*\B 0:+b

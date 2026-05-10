@@ -117,7 +117,7 @@ define-command modeline-parse -docstring "Read and interpret vi-format modelines
     try %{ evaluate-commands -draft -save-regs ^ %{
         execute-keys -save-regs "" gk %opt{modelines} JK x Z
         execute-keys gj %opt{modelines} KJ x <a-z> a
-        execute-keys s^\S*?\s+?\w+:\s?[^\n]+<ret> x
+        execute-keys s^\S*?\s+?\w+:\s?\N+<ret> x
         evaluate-commands -draft -itersel modeline-parse-impl
     } }
 }

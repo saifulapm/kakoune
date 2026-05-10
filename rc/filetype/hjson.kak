@@ -90,7 +90,7 @@ define-command -hidden hjson-indent-on-new-line %{
             execute-keys -draft kx <a-k>^(\h*/\*|\h+\*(?!/))<ret>
 
             # find comment opening, validate it was not closed, and check its using star prefixes
-            execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*([^\n]*\n\h*\*)*[^\n]*\n\h*.\z<ret>
+            execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*(\N*\n\h*\*)*\N*\n\h*.\z<ret>
 
             try %{
                 # if the previous line is opening the comment, insert star preceeded by space

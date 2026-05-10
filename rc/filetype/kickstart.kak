@@ -27,7 +27,7 @@ add-highlighter shared/kickstart/code/ regex '(--[\w-]+=? ?)([^-"\n][^\h\n]*)?' 
 add-highlighter shared/kickstart/code/ regex '%(include|ksappend)\b' 0:keyword
 
 add-highlighter shared/kickstart/packages/ regex "^\h*[\w-]*" 0:value
-add-highlighter shared/kickstart/packages/ regex "#[^\n]*" 0:comment
+add-highlighter shared/kickstart/packages/ regex "#\N*" 0:comment
 add-highlighter shared/kickstart/packages/ regex "^\h*@\^?[\h\w-]*" 0:attribute
 add-highlighter shared/kickstart/packages/ regex '\A\h*\K%packages\b' 0:type
 add-highlighter shared/kickstart/packages/ regex '^\h*%end\b' 0:type

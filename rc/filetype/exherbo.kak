@@ -132,7 +132,7 @@ hook -group glep42-highlight global WinSetOption filetype=glep42 %{
 provide-module glep42 %{
 ## News items (GLEP42)
 add-highlighter shared/glep42 group
-add-highlighter shared/glep42/ regex ^(Title|Author|Translator|Content-Type|Posted|Revision|News-Item-Format|Display-If-Installed|Display-If-Keyword|Display-If-Profile):([^\n]*(?:\n\h+[^\n]+)*)$ 1:keyword 2:attribute
+add-highlighter shared/glep42/ regex ^(Title|Author|Translator|Content-Type|Posted|Revision|News-Item-Format|Display-If-Installed|Display-If-Keyword|Display-If-Profile):(\N*(?:\n\h+\N+)*)$ 1:keyword 2:attribute
 add-highlighter shared/glep42/ regex <[^@>]+@.*?> 0:string
 add-highlighter shared/glep42/ regex ^>.*?$ 0:comment
 }

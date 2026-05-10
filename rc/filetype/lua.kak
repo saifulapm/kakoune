@@ -109,7 +109,7 @@ define-command -hidden lua-indent-on-new-line %[
         # remove trailing white spaces from previous line
         try %[ execute-keys -draft k : lua-trim-indent <ret> ]
         # preserve previous non-empty line indent
-        try %[ execute-keys -draft ,gh<a-?>^[^\n]+$<ret>s\A|.\z<ret>)<a-&> ]
+        try %[ execute-keys -draft ,gh<a-?>^\N+$<ret>s\A|.\z<ret>)<a-&> ]
         # add one indentation level if the previous line is not a comment and:
         #     - starts with a block keyword that is not closed on the same line,
         #     - or contains an unclosed function expression,
@@ -117,8 +117,8 @@ define-command -hidden lua-indent-on-new-line %[
         try %[ execute-keys -draft \
             , Kx \
             <a-K>\A\h*--<ret> \
-            <a-K>\A[^\n]*\b(end|until)\b<ret> \
-            <a-k>\A(\h*\b(do|else|elseif|for|(local\h+)?function|if|repeat|while)\b|[^\n]*[({]$|[^\n]*\bfunction\b\h*[(])<ret> \
+            <a-K>\A\N*\b(end|until)\b<ret> \
+            <a-k>\A(\h*\b(do|else|elseif|for|(local\h+)?function|if|repeat|while)\b|\N*[({]$|\N*\bfunction\b\h*[(])<ret> \
             <a-:><semicolon><a-gt>
         ]
     ]
@@ -136,10 +136,10 @@ define-command -hidden lua-insert-on-new-line %[
                 # check that starts with a block keyword that is not closed on the same line
                 execute-keys -draft \
                     kx \
-                    <a-k>^\h*\b(else|elseif|do|for|(local\h+)?function|if|while)\b|[^\n]\bfunction\b\h*[(]<ret> \
+                    <a-k>^\h*\b(else|elseif|do|for|(local\h+)?function|if|while)\b|\N\bfunction\b\h*[(]<ret> \
                     <a-K>\bend\b<ret>
                 # check that the block is empty and is not closed on a different line
-                execute-keys -draft <a-a>i <a-K>^[^\n]+\n[^\n]+\n<ret> jx <a-K>^<c-r>x\b(else|elseif|end)\b<ret>
+                execute-keys -draft <a-a>i <a-K>^\N+\n\N+\n<ret> jx <a-K>^<c-r>x\b(else|elseif|end)\b<ret>
                 # auto insert end
                 execute-keys -draft o<c-r>xend<esc>
                 # auto insert ) for anonymous function

@@ -34,9 +34,9 @@ add-highlighter shared/kdl/code default-region group
 # Slashdash (/-) comments are annoying to highlight properly without a proper parser due to the fact that they can comment
 # out any kdl construct.
 # The below is an approximation, and there are almost certainly edge cases missed.
-add-highlighter shared/kdl/slashdash_entire_node_with_child region -recurse \{ ^[\s]*/-[^\n]+\{ \} fill comment
+add-highlighter shared/kdl/slashdash_entire_node_with_child region -recurse \{ ^[\s]*/-\N+\{ \} fill comment
 add-highlighter shared/kdl/slashdash_child region -recurse \{ /-\s*\{ \} fill comment
-add-highlighter shared/kdl/slashdash_node region ^[\s]*/-[^\n]+ $ fill comment
+add-highlighter shared/kdl/slashdash_node region ^[\s]*/-\N+ $ fill comment
 add-highlighter shared/kdl/slashdash_string region '/-\s*"' (?<!\\)(\\\\)*" fill comment
 add-highlighter shared/kdl/slashdash_triple_string region '/-\s*"""' '(?<!\\)(?:\\\\)*"""' fill string
 add-highlighter shared/kdl/slashdash_raw_string region -match-capture '/-\s*r"(#+)' '"(#+)' fill comment
@@ -116,7 +116,7 @@ define-command -hidden kdl-indent-on-new-line %{
             execute-keys -draft kx <a-k>^(\h*/\*|\h+\*(?!/))<ret>
 
             # find comment opening, validate it was not closed, and check its using star prefixes
-            execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*([^\n]*\n\h*\*)*[^\n]*\n\h*.\z<ret>
+            execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*(\N*\n\h*\*)*\N*\n\h*.\z<ret>
 
             try %{
                 # if the previous line is opening the comment, insert star preceeded by space

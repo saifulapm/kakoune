@@ -39,38 +39,38 @@ add-highlighter shared/restructuredtext/code region ::\h*\n ^(?=\S)  fill meta
 # Valid header characters:
 # # ! " $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~
 
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(#{3,}\n)?[^\n]+\n(#{3,})$ 0:title
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(!{3,}\n)?[^\n]+\n(!{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)("{3,}\n)?[^\n]+\n("{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\${3,}\n)?[^\n]+\n(\${3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(%{3,}\n)?[^\n]+\n(%{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(&{3,}\n)?[^\n]+\n(&{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)('{3,}\n)?[^\n]+\n('{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\({3,}\n)?[^\n]+\n(\({3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\){3,}\n)?[^\n]+\n(\){3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\*{3,}\n)?[^\n]+\n(\*{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\+{3,}\n)?[^\n]+\n(\+{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(,{3,}\n)?[^\n]+\n(,{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(-{3,}\n)?[^\n]+\n(-{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\.{3,}\n)?[^\n]+\n(\.{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(/{3,}\n)?[^\n]+\n(/{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(:{3,}\n)?[^\n]+\n(:{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\;{3,}\n)?[^\n]+\n(\;{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(<{3,}\n)?[^\n]+\n(<{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(={3,}\n)?[^\n]+\n(={3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(>{3,}\n)?[^\n]+\n(>{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\?{3,}\n)?[^\n]+\n(\?{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(@{3,}\n)?[^\n]+\n(@{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\[{3,}\n)?[^\n]+\n(\[{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\\{3,}\n)?[^\n]+\n(\\{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\]{3,}\n)?[^\n]+\n(\]{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\^{3,}\n)?[^\n]+\n(\^{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(_{3,}\n)?[^\n]+\n(_{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(`{3,}\n)?[^\n]+\n(`{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\{{3,}\n)?[^\n]+\n(\{{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\|{3,}\n)?[^\n]+\n(\|{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\}{3,}\n)?[^\n]+\n(\}{3,})$ 0:header
-add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(~{3,}\n)?[^\n]+\n(~{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(#{3,}\n)?\N+\n(#{3,})$ 0:title
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(!{3,}\n)?\N+\n(!{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)("{3,}\n)?\N+\n("{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\${3,}\n)?\N+\n(\${3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(%{3,}\n)?\N+\n(%{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(&{3,}\n)?\N+\n(&{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)('{3,}\n)?\N+\n('{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\({3,}\n)?\N+\n(\({3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\){3,}\n)?\N+\n(\){3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\*{3,}\n)?\N+\n(\*{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\+{3,}\n)?\N+\n(\+{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(,{3,}\n)?\N+\n(,{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(-{3,}\n)?\N+\n(-{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\.{3,}\n)?\N+\n(\.{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(/{3,}\n)?\N+\n(/{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(:{3,}\n)?\N+\n(:{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\;{3,}\n)?\N+\n(\;{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(<{3,}\n)?\N+\n(<{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(={3,}\n)?\N+\n(={3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(>{3,}\n)?\N+\n(>{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\?{3,}\n)?\N+\n(\?{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(@{3,}\n)?\N+\n(@{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\[{3,}\n)?\N+\n(\[{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\\{3,}\n)?\N+\n(\\{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\]{3,}\n)?\N+\n(\]{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\^{3,}\n)?\N+\n(\^{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(_{3,}\n)?\N+\n(_{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(`{3,}\n)?\N+\n(`{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\{{3,}\n)?\N+\n(\{{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\|{3,}\n)?\N+\n(\|{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(\}{3,}\n)?\N+\n(\}{3,})$ 0:header
+add-highlighter shared/restructuredtext/content/ regex (\A|\n\n)(~{3,}\n)?\N+\n(~{3,})$ 0:header
 
 # Inline markup
 add-highlighter shared/restructuredtext/content/ regex [^*](\*\*([^\s*]|([^\s*][^*]*[^\s*]))\*\*)[^*] 1:+b
@@ -84,7 +84,7 @@ define-command restructuredtext-load-languages -params 1 %{
             require-module %val{selection}
             add-highlighter "shared/restructuredtext/%val{selection}" region "\.\.\h*code-block::\h*%val{selection}\h*\n" '^(?=\S)' regions
             add-highlighter "shared/restructuredtext/%val{selection}/" default-region fill meta
-            add-highlighter "shared/restructuredtext/%val{selection}/inner" region \A\.\.\h*code-block::[^\n]*\K '^(?=\S)' ref %val{selection}
+            add-highlighter "shared/restructuredtext/%val{selection}/inner" region \A\.\.\h*code-block::\N*\K '^(?=\S)' ref %val{selection}
         }}
     }}
 }

@@ -124,7 +124,7 @@ define-command -hidden css-indent-on-new-line %[
         > catch %<
             # else if previous line closed a paren (possibly followed by words and a comment),
             # copy indent of the opening paren line
-            execute-keys -draft kx 1s(\))(\h+\w+)*\h*(\;\h*)?(?://[^\n]+)?\n\z<ret> m<a-semicolon>J <a-S> 1<a-&>
+            execute-keys -draft kx 1s(\))(\h+\w+)*\h*(\;\h*)?(?://\N+)?\n\z<ret> m<a-semicolon>J <a-S> 1<a-&>
         > catch %<
             # else indent new lines with the same level as the previous one
             execute-keys -draft K <a-&>
@@ -146,7 +146,7 @@ define-command -hidden css-insert-on-new-line %[
         execute-keys -draft kx <a-k>^(\h*/\*|\h+\*(?!/))<ret>
 
         # find comment opening, validate it was not closed, and check its using star prefixes
-        execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*([^\n]*\n\h*\*)*[^\n]*\n\h*.\z<ret>
+        execute-keys -draft <a-?>/\*<ret><a-H> <a-K>\*/<ret> <a-k>\A\h*/\*(\N*\n\h*\*)*\N*\n\h*.\z<ret>
 
         try %[
             # if the previous line is opening the comment, insert star preceeded by space

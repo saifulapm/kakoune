@@ -13,7 +13,7 @@ declare-option -docstring %{
 define-command -hidden autowrap-cursor %{ evaluate-commands -save-regs '/"|^@m' %{
     try %{
         ## if the line isn't too long, do nothing
-        execute-keys -draft "x<a-k>^[^\n]{%opt{autowrap_column},}[^\n]<ret>"
+        execute-keys -draft "x<a-k>^\N{%opt{autowrap_column},}\N<ret>"
 
         try %{
             reg m "%val{selections_desc}"
@@ -42,7 +42,7 @@ define-command -hidden autowrap-cursor %{ evaluate-commands -save-regs '/"|^@m' 
 } }
 
 define-command autowrap-enable -docstring "Automatically wrap the lines in which characters are inserted" %{
-    hook -group autowrap window InsertChar [^\n] autowrap-cursor
+    hook -group autowrap window InsertChar \N autowrap-cursor
 }
 
 define-command autowrap-disable -docstring "Disable automatic line wrapping" %{
