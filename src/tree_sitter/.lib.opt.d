@@ -1,13 +1,13 @@
 src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   src/tree_sitter/./alloc.c src/tree_sitter/./alloc.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdbool.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdbool.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdio.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_symbol_aliasing.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_posix_availability.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/ptrcheck.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/ptrcheck.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h \
@@ -59,7 +59,7 @@ src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_sigset_t.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uid_t.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/resource.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdint.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdint.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdint.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint8_t.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint16_t.h \
@@ -89,7 +89,7 @@ src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   src/tree_sitter/api.h src/tree_sitter/./get_changed_ranges.c \
   src/tree_sitter/././get_changed_ranges.h \
   src/tree_sitter/./././tree_cursor.h src/tree_sitter/././././subtree.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/limits.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/limits.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/limits.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/limits.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/limits.h \
@@ -118,15 +118,15 @@ src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   src/tree_sitter/././unicode/utf8.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/umachine.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/ptypes.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/stddef.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stddef.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stddef.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_header_macro.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_ptrdiff_t.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_size_t.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_wchar_t.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_null.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_max_align_t.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_offsetof.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_header_macro.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_ptrdiff_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_size_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_wchar_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_null.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_max_align_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_offsetof.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/platform.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/uconfig.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/uvernum.h \
@@ -142,16 +142,16 @@ src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libkern/arm/OSByteOrder.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_os_inline.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/arch.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdarg.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_header_macro.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg___gnuc_va_list.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_list.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_arg.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg___va_copy.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_copy.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdarg.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_header_macro.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg___gnuc_va_list.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_list.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_arg.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg___va_copy.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_copy.h \
   src/tree_sitter/./node.c src/tree_sitter/././point.h \
   src/tree_sitter/././tree.h src/tree_sitter/./parser.c \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/inttypes.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/inttypes.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/inttypes.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_inttypes.h \
   src/tree_sitter/././alloc.h src/tree_sitter/././array.h \
@@ -194,14 +194,14 @@ src/tree_sitter/lib.opt.o: src/tree_sitter/lib.c \
   src/tree_sitter/./wasm_store.c src/tree_sitter/././parser.h
 src/tree_sitter/./alloc.c:
 src/tree_sitter/./alloc.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdbool.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdbool.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdio.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_symbol_aliasing.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_posix_availability.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/ptrcheck.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/ptrcheck.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h:
@@ -253,7 +253,7 @@ src/tree_sitter/./alloc.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_sigset_t.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uid_t.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/resource.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdint.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdint.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdint.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint8_t.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint16_t.h:
@@ -285,7 +285,7 @@ src/tree_sitter/./get_changed_ranges.c:
 src/tree_sitter/././get_changed_ranges.h:
 src/tree_sitter/./././tree_cursor.h:
 src/tree_sitter/././././subtree.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/limits.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/limits.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/limits.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/limits.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/limits.h:
@@ -324,15 +324,15 @@ src/tree_sitter/././unicode.h:
 src/tree_sitter/././unicode/utf8.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/umachine.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/ptypes.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/stddef.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/stddef.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stddef.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_header_macro.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_ptrdiff_t.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_size_t.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_wchar_t.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_null.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_max_align_t.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_offsetof.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_header_macro.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_ptrdiff_t.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_size_t.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_wchar_t.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_null.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_max_align_t.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_offsetof.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/platform.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/uconfig.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unicode/uvernum.h:
@@ -348,18 +348,18 @@ src/tree_sitter/././portable/endian.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libkern/arm/OSByteOrder.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_os_inline.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/arch.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/stdarg.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_header_macro.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg___gnuc_va_list.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_list.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_arg.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg___va_copy.h:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stdarg_va_copy.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdarg.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_header_macro.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg___gnuc_va_list.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_list.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_arg.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg___va_copy.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stdarg_va_copy.h:
 src/tree_sitter/./node.c:
 src/tree_sitter/././point.h:
 src/tree_sitter/././tree.h:
 src/tree_sitter/./parser.c:
-/Library/Developer/CommandLineTools/usr/lib/clang/17/include/inttypes.h:
+/Library/Developer/CommandLineTools/usr/lib/clang/21/include/inttypes.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/inttypes.h:
 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_inttypes.h:
 src/tree_sitter/././alloc.h:
