@@ -138,11 +138,20 @@ String helix_runtime_directory()
     if (const char* helix_runtime = getenv("HELIX_RUNTIME"))
         return helix_runtime;
 
-    // Stable Homebrew symlink — survives helix version upgrades
+    // Stable Homebrew symlink — survives helix version upgrades (macOS)
     constexpr StringView homebrew_path = "/opt/homebrew/opt/helix/libexec/runtime";
     struct stat st;
     if (stat(homebrew_path.data(), &st) == 0 and S_ISDIR(st.st_mode))
         return homebrew_path.str();
+
+    // Common Linux install locations (distro packages, /usr/local builds)
+    for (StringView candidate : { "/usr/lib/helix/runtime"_sv,
+                                  "/usr/share/helix/runtime"_sv,
+                                  "/usr/local/lib/helix/runtime"_sv,
+                                  "/usr/local/share/helix/runtime"_sv,
+                                  "/opt/helix/runtime"_sv })
+        if (stat(candidate.data(), &st) == 0 and S_ISDIR(st.st_mode))
+            return candidate.str();
 
     return {};
 }

@@ -2845,6 +2845,8 @@ const CommandDesc tree_sitter_disable_cmd = {
         auto& buffer = context.buffer();
         if (has_syntax_tree(buffer))
             remove_syntax_tree(buffer);
+        if (has_async_syntax_tree(buffer))
+            remove_async_syntax_tree(buffer);
     }
 };
 

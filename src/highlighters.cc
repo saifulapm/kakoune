@@ -2721,23 +2721,14 @@ private:
         if (not config or not config->language() or not config->highlight_query())
             return;
 
-        if (not has_syntax_tree(buffer))
-        {
-            try
-            {
-                create_syntax_tree(buffer, config);
-            }
-            catch (runtime_error&)
-            {
-                return;
-            }
-        }
-
-        auto& syntax_tree = get_syntax_tree(buffer);
-        syntax_tree.update(buffer);
-
-        if (not syntax_tree.is_valid())
+        // The host tree is parsed off-thread; this returns the latest
+        // completed tree (possibly one keystroke stale) and never blocks on
+        // the parse. nullptr means the first parse is still in flight — a
+        // redraw follows when it lands.
+        SyntaxTree* st = sync_async_host_tree(buffer, config);
+        if (not st)
             return;
+        auto& syntax_tree = *st;
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
@@ -2870,23 +2861,11 @@ private:
         if (not config or not config->language())
             return;
 
-        if (not has_syntax_tree(buffer))
-        {
-            try
-            {
-                create_syntax_tree(buffer, config);
-            }
-            catch (runtime_error&)
-            {
-                return;
-            }
-        }
-
-        auto& syntax_tree = get_syntax_tree(buffer);
-        syntax_tree.update(buffer);
-
-        if (not syntax_tree.is_valid())
+        // Share the background-parsed tree (never parse synchronously here).
+        SyntaxTree* st = sync_async_host_tree(buffer, config);
+        if (not st)
             return;
+        auto& syntax_tree = *st;
 
         const auto& byte_index = syntax_tree.byte_index();
         auto display_range = display_buffer.range();
