@@ -691,6 +691,20 @@ static StringView language_to_grammar(StringView name)
         return "json";
     if (name == "markdown-rustdoc")
         return "markdown";
+    if (name == "env")
+        return "bash";
+    if (name == "erb")
+        return "embedded-template";
+    if (name == "git-commit")
+        return "gitcommit";
+    if (name == "git-attributes")
+        return "gitattributes";
+    if (name == "git-ignore")
+        return "gitignore";
+    if (name == "jinja")
+        return "jinja2";
+    if (name == "protobuf")
+        return "proto";
     return name;
 }
 
@@ -712,8 +726,9 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
 
     if (not handle)
     {
-        write_to_debug_buffer(format("tree-sitter: failed to load grammar '{}': {}",
-                                     name, dlerror()));
+        // No grammar installed for this filetype is the normal, expected case
+        // (most filetypes have none) — don't spam the debug buffer. The empty
+        // config is cached so this is attempted at most once per filetype.
         m_languages[name.str()] = make_unique_ptr<LanguageConfig>();
         return nullptr;
     }
