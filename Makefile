@@ -122,7 +122,7 @@ include $(deps)
 	$(CXX) $(KAK_CPPFLAGS) $(KAK_CXXFLAGS) -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
 
 .c$(tag).o:
-	$(CC) -std=c11 $(CXXFLAGS-debug-$(debug)) -Isrc -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
+	$(CC) -std=c11 -D_DEFAULT_SOURCE $(CXXFLAGS-debug-$(debug)) -Isrc -MD -MP -MF $(*D)/.$(*F)$(tag).d -c -o $@ $<
 
 src/.version.cc:
 	echo 'namespace Kakoune { const char *version = "$(version)"; }' > $@
