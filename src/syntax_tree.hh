@@ -53,6 +53,13 @@ struct InjectionLayer
     // keystroke. Mirrors Helix's combined-injection Slab reuse.
     bool combined = false;
 
+    // Injection query pattern that produced this layer. Combined injections
+    // merge per (pattern, language) — tree-house's InjectionScope::Pattern —
+    // so this participates in both the merge key and the layer-pool match:
+    // reusing another pattern's tree as an incremental-parse base would splice
+    // unrelated documents together.
+    uint32_t pattern_index = 0;
+
     InjectionLayer() = default;
     ~InjectionLayer();
     InjectionLayer(InjectionLayer&&) noexcept;
@@ -61,16 +68,57 @@ struct InjectionLayer
     InjectionLayer& operator=(const InjectionLayer&) = delete;
 };
 
+// Intersect the byte range [start_byte, end_byte) (whose end points are
+// start_point/end_point) with each of the given included ranges, appending one
+// TSRange per non-empty intersection to `out`. Used to clip capture nodes from
+// an injection layer to the layer's included ranges, so a node spanning the
+// gap between two ranges does not paint over the host language text in-between.
+void clip_to_included_ranges(uint32_t start_byte, uint32_t end_byte,
+                             TSPoint start_point, TSPoint end_point,
+                             ConstArrayView<TSRange> ranges,
+                             Vector<TSRange, MemoryDomain::Highlight>& out);
+
+// Sort ranges by start byte and merge overlapping/touching neighbours.
+// ts_parser_set_included_ranges requires a sorted, non-overlapping range set
+// (it returns false and keeps the parser's previous ranges otherwise), and
+// combined-injection ranges are accumulated in raw query-match order which
+// carries no such guarantee.
+void sort_and_merge_included_ranges(Vector<TSRange, MemoryDomain::Highlight>& ranges);
+
+// One capture emitted by a highlight query, pending precedence resolution.
+// `index` is the emission order of the capture (the query cursor emits
+// same-start-byte captures in ascending pattern order) and doubles as the
+// caller's payload index.
+struct CaptureSlot
+{
+    uint32_t start_byte;
+    uint32_t end_byte;
+    uint32_t index;
+};
+
+// Reorder captures to the tree-house/Neovim/Zed precedence convention that
+// helix-sourced highlight queries are written for:
+//  - when several patterns capture the same byte range, the last one emitted
+//    (i.e. the later pattern in the query file) REPLACES the earlier ones —
+//    queries put specific patterns after general ones;
+//  - when captures nest, the outer one comes first so the inner capture's
+//    face is applied on top of it for its subrange (nodes of a single tree
+//    never partially overlap, so sorting by start ascending / end descending
+//    yields outer-before-inner).
+void resolve_capture_precedence(Vector<CaptureSlot, MemoryDomain::Highlight>& captures);
+
 struct LineByteIndex
 {
     void rebuild(const Buffer& buffer);
     // Adopt a precomputed line→start-byte table (the worker already built
     // this from its snapshot; avoids re-touching the live Buffer).
-    void rebuild_from_offsets(const Vector<uint32_t>& offsets);
+    void rebuild_from_offsets(const Vector<uint32_t>& offsets,
+                              uint32_t total_bytes);
     uint32_t byte_offset(BufferCoord coord) const;
 
 private:
     Vector<uint32_t, MemoryDomain::Highlight> m_line_start_bytes;
+    uint32_t m_total_bytes = 0;
 };
 
 struct DeferParse {};  // tag: build an empty SyntaxTree, no initial parse
@@ -100,6 +148,10 @@ public:
 
     ConstArrayView<InjectionLayer> injection_layers() const { return m_injection_layers; }
     void detect_injections(const Buffer& buffer);
+    // True when the last injection pass timed out and a retry is pending.
+    // The highlighter must not serve cached results while set: the retry
+    // happens inside detect_injections, which only runs on a cache miss.
+    bool injection_retry_pending() const { return m_injection_timestamp != m_timestamp; }
     const LanguageConfig* config() const;  // re-resolves from registry each call
     const String& language_name() const { return m_language_name; }
 
@@ -108,10 +160,19 @@ public:
     // Used by AsyncSyntaxTree: the worker does the expensive host parse, the
     // main thread installs the result here and runs the (cheap, cached,
     // main-thread-only) injection detection through the normal path.
-    void adopt_tree(TSTree* tree, LineByteIndex&& byte_index, size_t ts);
+    // Injection layer trees are kept (edit-translated via m_pending_edits)
+    // when possible so combined layers keep their incremental-parse base.
+    void adopt_tree(const Buffer& buffer, TSTree* tree,
+                    LineByteIndex&& byte_index, size_t ts);
 
 private:
     void full_parse(const Buffer& buffer);
+    // Translate buffer changes since m_edits_timestamp into TSInputEdits,
+    // apply them to m_tree and record them in m_pending_edits for later
+    // replay onto pooled injection layer trees. Returns false (without
+    // touching anything) on backward-sorted changes (undo/redo), where
+    // incremental translation is impossible.
+    bool apply_edits(const Buffer& buffer);
 
     TSParser* m_parser = nullptr;
     TSTree* m_tree = nullptr;
@@ -120,6 +181,12 @@ private:
     String m_language_name;                // used to re-resolve config from registry
     LineByteIndex m_byte_index;
     size_t m_timestamp = 0;
+    // Buffer timestamp whose coordinate space m_tree currently lives in: all
+    // changes up to it have been applied to m_tree via ts_tree_edit (or the
+    // tree was parsed at it). Can be ahead of m_timestamp when a parse timed
+    // out — the retry must not re-apply those edits. Invariant:
+    // m_edits_timestamp >= m_timestamp.
+    size_t m_edits_timestamp = 0;
     size_t m_injection_timestamp = 0;
     Vector<InjectionLayer, MemoryDomain::Highlight> m_injection_layers;
     // Edits applied to m_tree since last detect_injections call; replayed onto
@@ -133,6 +200,13 @@ void create_syntax_tree_deferred(const Buffer& buffer, const LanguageConfig* con
 SyntaxTree& get_syntax_tree(const Buffer& buffer);
 void remove_syntax_tree(const Buffer& buffer);
 bool has_syntax_tree(const Buffer& buffer);
+
+// Per-buffer kill switch: while set, sync_async_host_tree creates nothing, so
+// tree-sitter-disable (which removes the existing trees/worker and sets it)
+// actually sticks instead of being undone by the next redraw.
+// tree-sitter-enable clears it.
+void set_tree_sitter_disabled(const Buffer& buffer, bool disabled);
+bool is_tree_sitter_disabled(const Buffer& buffer);
 
 // ---------------------------------------------------------------------------
 // Background (off-render-thread) parsing.
@@ -226,6 +300,9 @@ public:
 
     const ParsedSyntax& current() const { return m_current; }
     bool is_valid() const { return m_current.is_valid(); }
+    // Language this tree was created for; the config/grammar are pinned at
+    // construction, so a filetype change must recreate the object.
+    const String& language_name() const { return m_language_name; }
 
 private:
     void parse_sync(const Buffer& buffer);   // main thread; may flip to bg
