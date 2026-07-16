@@ -701,12 +701,9 @@ struct WrapHighlighter : Highlighter
                 last_WORD_boundary = pos;
         };
 
-        if (pos.atom_it != line_end && pos.atom_it->type() != DisplayAtom::Range and
+        if (pos.atom_it->type() != DisplayAtom::Range and
             pos.column + pos.atom_it->length() >= wrap_column)
-        {
-            ++pos.atom_it;
-            return true;
-        }
+            return ++pos.atom_it != line_end;
 
         while (pos.atom_it != line_end and pos.column < wrap_column)
         {
@@ -2625,6 +2622,9 @@ private:
     TSQueryCursor* m_cursor;
     HashSet<uint32_t> m_local_refs;
     size_t m_local_refs_timestamp = 0;
+    uint32_t m_local_refs_start_byte = 0;
+    uint32_t m_local_refs_end_byte = 0;
+    const TSLanguage* m_local_refs_language = nullptr;
 
     // Highlight result cache — skip query re-execution when tree unchanged.
     // Stores resolved Face directly to avoid parse_face+hash lookup per capture.
@@ -2637,18 +2637,26 @@ private:
         Face face;
     };
     Vector<CachedHighlight> m_cached_highlights;
+    // Explicit validity flag: an empty vector is a legitimate cache entry
+    // (a viewport can genuinely produce zero captures).
+    bool m_highlight_cache_valid = false;
     size_t m_highlight_cache_timestamp = -1u;
     uint32_t m_cached_start_byte = 0;
     uint32_t m_cached_end_byte = 0;
+    const TSLanguage* m_cached_language = nullptr;
 
-    // Run a highlight query and apply faces to the display buffer
+    // Run a highlight query and apply faces to the display buffer.
+    // For injection layers parsed with included ranges, `clip_ranges` clips
+    // each capture to those ranges so a node spanning the gap between two
+    // ranges does not paint the injected face over host language text.
     void run_highlights(TSQuery* query, TSNode root,
                         const Vector<String>& capture_faces,
                         uint32_t start_byte, uint32_t end_byte,
                         const HashSet<uint32_t>& local_refs,
                         const PatternPredicates& highlight_preds,
                         const Buffer& buffer,
-                        HighlightContext& context, DisplayBuffer& display_buffer)
+                        HighlightContext& context, DisplayBuffer& display_buffer,
+                        ConstArrayView<TSRange> clip_ranges = {})
     {
         if (not m_cursor)
             return;
@@ -2662,6 +2670,20 @@ private:
         Vector<Optional<Face>> face_cache((int)capture_faces.size());
         // Local-ref override uses a single fixed face name; resolve once.
         const Face local_face = face_registry["ts_variable"];
+
+        // Captures are collected first, then applied only after precedence
+        // resolution (see resolve_capture_precedence): a later pattern
+        // capturing the same node replaces the earlier one instead of merging
+        // with it, and a capture nested inside another is applied on top of
+        // the enclosing one instead of under it.
+        struct PendingHighlight
+        {
+            TSPoint start_point;
+            TSPoint end_point;
+            Face face;
+        };
+        Vector<PendingHighlight, MemoryDomain::Highlight> pending;
+        Vector<CaptureSlot, MemoryDomain::Highlight> slots;
 
         TSQueryMatch match;
         uint32_t capture_index;
@@ -2693,17 +2715,41 @@ private:
                 face = *slot;
             }
 
-            TSPoint start_point = ts_node_start_point(capture.node);
-            TSPoint end_point = ts_node_end_point(capture.node);
+            slots.push_back({node_start, ts_node_end_byte(capture.node),
+                             (uint32_t)pending.size()});
+            pending.push_back({ts_node_start_point(capture.node),
+                               ts_node_end_point(capture.node), face});
+        }
 
-            BufferCoord begin_coord{LineCount{(int)start_point.row},
-                                    ByteCount{(int)start_point.column}};
-            BufferCoord end_coord{LineCount{(int)end_point.row},
-                                  ByteCount{(int)end_point.column}};
+        resolve_capture_precedence(slots);
 
-            highlight_range(display_buffer, begin_coord, end_coord, false,
-                apply_face(face));
-            m_cached_highlights.push_back({begin_coord, end_coord, face});
+        // Scratch vector for clipped capture segments, reused across captures.
+        Vector<TSRange, MemoryDomain::Highlight> clipped;
+        for (auto& slot : slots)
+        {
+            const auto& p = pending[(int)slot.index];
+
+            auto emit = [&](TSPoint begin, TSPoint end) {
+                BufferCoord begin_coord{LineCount{(int)begin.row},
+                                        ByteCount{(int)begin.column}};
+                BufferCoord end_coord{LineCount{(int)end.row},
+                                      ByteCount{(int)end.column}};
+                highlight_range(display_buffer, begin_coord, end_coord, false,
+                    apply_face(p.face));
+                m_cached_highlights.push_back({begin_coord, end_coord, p.face});
+            };
+
+            if (clip_ranges.empty())
+                emit(p.start_point, p.end_point);
+            else
+            {
+                clipped.clear();
+                clip_to_included_ranges(slot.start_byte, slot.end_byte,
+                                        p.start_point, p.end_point,
+                                        clip_ranges, clipped);
+                for (auto& seg : clipped)
+                    emit(seg.start_point, seg.end_point);
+            }
         }
     }
 
@@ -2743,21 +2789,42 @@ private:
         const auto& root_faces = config->capture_faces();
 
         // Build local variable reference positions for scope-aware highlighting
-        // (cached — only recomputed when tree changes)
-        if (config->locals_query() and syntax_tree.timestamp() != m_local_refs_timestamp)
+        // (cached — recomputed when the tree or the queried byte range change).
+        // The query range is widened to the top-level nodes enclosing the
+        // viewport so definitions scrolled off-screen (e.g. parameters of the
+        // enclosing function) still resolve.
+        if (config->locals_query())
         {
-            m_local_refs = build_local_references(config->locals_query(),
-                                                  ts_tree_root_node(syntax_tree.tree()),
-                                                  buffer, start_byte, end_byte,
-                                                  config->locals_predicates());
-            m_local_refs_timestamp = syntax_tree.timestamp();
+            TSNode root = ts_tree_root_node(syntax_tree.tree());
+            uint32_t locals_start = start_byte, locals_end = end_byte;
+            TSNode first = ts_node_first_child_for_byte(root, start_byte);
+            if (not ts_node_is_null(first))
+                locals_start = std::min(locals_start, ts_node_start_byte(first));
+            TSNode last = ts_node_first_child_for_byte(root, end_byte);
+            if (not ts_node_is_null(last))
+                locals_end = std::max(locals_end, ts_node_end_byte(last));
+            if (syntax_tree.timestamp() != m_local_refs_timestamp
+                or locals_start != m_local_refs_start_byte
+                or locals_end != m_local_refs_end_byte
+                or ts_tree_language(syntax_tree.tree()) != m_local_refs_language)
+            {
+                m_local_refs = build_local_references(config->locals_query(), root,
+                                                      buffer, locals_start, locals_end,
+                                                      config->locals_predicates());
+                m_local_refs_timestamp = syntax_tree.timestamp();
+                m_local_refs_start_byte = locals_start;
+                m_local_refs_end_byte = locals_end;
+                m_local_refs_language = ts_tree_language(syntax_tree.tree());
+            }
         }
 
         // Check highlight cache: skip query if tree unchanged and viewport same
-        if (syntax_tree.timestamp() == m_highlight_cache_timestamp
+        if (m_highlight_cache_valid
+            and syntax_tree.timestamp() == m_highlight_cache_timestamp
             and start_byte == m_cached_start_byte
             and end_byte == m_cached_end_byte
-            and not m_cached_highlights.empty())
+            and ts_tree_language(syntax_tree.tree()) == m_cached_language
+            and not syntax_tree.injection_retry_pending())
         {
             // Replay cached highlights — Face already resolved at fill time.
             for (auto& ch : m_cached_highlights)
@@ -2767,10 +2834,12 @@ private:
         }
 
         // Cache miss — run queries and build cache
+        m_highlight_cache_valid = false;
         m_cached_highlights.clear();
         m_highlight_cache_timestamp = syntax_tree.timestamp();
         m_cached_start_byte = start_byte;
         m_cached_end_byte = end_byte;
+        m_cached_language = ts_tree_language(syntax_tree.tree());
 
         // Highlight root layer
         run_highlights(root_query,
@@ -2806,8 +2875,10 @@ private:
                            start_byte, end_byte,
                            inj_local_refs,
                            layer.config->highlight_predicates(), buffer,
-                           context, display_buffer);
+                           context, display_buffer, layer.ranges);
         }
+
+        m_highlight_cache_valid = true;
     }
 };
 
@@ -2832,9 +2903,13 @@ private:
     // Stores resolved Face so redraws skip both the tree walk and face lookup.
     struct CachedBracket { BufferCoord begin; BufferCoord end; Face face; };
     Vector<CachedBracket, MemoryDomain::Highlight> m_cached_brackets;
+    // Explicit validity flag: an empty vector is a legitimate cache entry
+    // (a viewport can genuinely contain zero brackets).
+    bool m_cache_valid = false;
     size_t m_cache_timestamp = -1u;
     uint32_t m_cached_start_byte = 0;
     uint32_t m_cached_end_byte = 0;
+    const TSLanguage* m_cached_language = nullptr;
 
     static bool is_bracket_char(char c)
     {
@@ -2877,10 +2952,11 @@ private:
         auto& faces = context.context.faces();
 
         // Cache hit: skip tree walk and face lookups.
-        if (syntax_tree.timestamp() == m_cache_timestamp
+        if (m_cache_valid
+            and syntax_tree.timestamp() == m_cache_timestamp
             and vis_start_byte == m_cached_start_byte
             and vis_end_byte == m_cached_end_byte
-            and not m_cached_brackets.empty())
+            and ts_tree_language(syntax_tree.tree()) == m_cached_language)
         {
             for (auto& cb : m_cached_brackets)
                 highlight_range(display_buffer, cb.begin, cb.end, false,
@@ -2888,13 +2964,18 @@ private:
             return;
         }
 
+        m_cache_valid = false;
         m_cached_brackets.clear();
         m_cache_timestamp = syntax_tree.timestamp();
         m_cached_start_byte = vis_start_byte;
         m_cached_end_byte = vis_end_byte;
+        m_cached_language = ts_tree_language(syntax_tree.tree());
 
-        // Collect all bracket nodes from the tree, then sort by position
-        // and assign rainbow depth based on bracket nesting (not AST depth)
+        // Collect visible bracket nodes from the tree and assign rainbow depth
+        // based on bracket nesting (not AST depth). Brackets before the
+        // viewport are not collected but still counted into a seed for the
+        // nesting counter, so a given bracket's color does not depend on the
+        // scroll position.
         struct BracketInfo
         {
             BufferCoord begin;
@@ -2902,11 +2983,11 @@ private:
             bool is_open;
         };
         Vector<BracketInfo, MemoryDomain::Highlight> brackets;
+        int seed_nesting = 0;
 
         TSTreeCursor cursor = ts_tree_cursor_new(ts_tree_root_node(syntax_tree.tree()));
         OnScopeEnd cursor_cleanup{[&]{ ts_tree_cursor_delete(&cursor); }};
 
-        int tree_depth = 0;
         bool descended = true;
 
         do {
@@ -2914,9 +2995,7 @@ private:
 
             if (descended)
             {
-                uint32_t node_start = ts_node_start_byte(node);
-                uint32_t node_end = ts_node_end_byte(node);
-                if (node_end < vis_start_byte or node_start > vis_end_byte)
+                if (ts_node_start_byte(node) > vis_end_byte)
                 {
                     if (ts_tree_cursor_goto_next_sibling(&cursor))
                     {
@@ -2925,7 +3004,6 @@ private:
                     }
                     else if (ts_tree_cursor_goto_parent(&cursor))
                     {
-                        tree_depth--;
                         descended = false;
                         continue;
                     }
@@ -2938,20 +3016,31 @@ private:
                     is_bracket_char(type[0]) and
                     ts_node_child_count(node) == 0)
                 {
-                    TSPoint start_pt = ts_node_start_point(node);
-                    TSPoint end_pt = ts_node_end_point(node);
+                    if (ts_node_end_byte(node) < vis_start_byte)
+                    {
+                        // Off-screen prefix bracket: only track its effect on
+                        // the nesting depth of the visible ones.
+                        if (is_open_bracket(type[0]))
+                            seed_nesting++;
+                        else if (seed_nesting > 0)
+                            seed_nesting--;
+                    }
+                    else
+                    {
+                        TSPoint start_pt = ts_node_start_point(node);
+                        TSPoint end_pt = ts_node_end_point(node);
 
-                    brackets.push_back({
-                        {LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}},
-                        {LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}},
-                        is_open_bracket(type[0])
-                    });
+                        brackets.push_back({
+                            {LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}},
+                            {LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}},
+                            is_open_bracket(type[0])
+                        });
+                    }
                 }
             }
 
             if (descended and ts_tree_cursor_goto_first_child(&cursor))
             {
-                tree_depth++;
                 descended = true;
             }
             else if (ts_tree_cursor_goto_next_sibling(&cursor))
@@ -2960,7 +3049,6 @@ private:
             }
             else if (ts_tree_cursor_goto_parent(&cursor))
             {
-                tree_depth--;
                 descended = false;
             }
             else
@@ -2976,10 +3064,11 @@ private:
         };
 
         // Now color brackets by nesting depth.
-        // Walk through collected brackets in order, track nesting with a counter.
+        // Walk through collected brackets in order, track nesting with a
+        // counter seeded with the unmatched openers before the viewport.
         // Opening bracket gets current depth, closing bracket gets depth-1.
         // Both brackets of a pair get the same color.
-        int nesting = 0;
+        int nesting = seed_nesting;
         for (auto& b : brackets)
         {
             int color_depth;
@@ -3000,6 +3089,8 @@ private:
                             apply_face(face));
             m_cached_brackets.push_back({b.begin, b.end, face});
         }
+
+        m_cache_valid = true;
     }
 };
 
