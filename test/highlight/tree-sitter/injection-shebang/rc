@@ -1,0 +1,3 @@
+source "%val{runtime}/rc/tools/tree-sitter.kak"
+set-option buffer filetype markdown
+add-highlighter buffer/tree-sitter tree-sitter

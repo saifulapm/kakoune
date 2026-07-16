@@ -1,0 +1,5 @@
+ui_out '{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }'
+# Wait for a draw that paints the "fn" keyword with ts_keyword_function (red).
+# The cursor was moved to the end of the line by cmd so it cannot split the
+# "fn" atom. The first parse is asynchronous; a redraw follows its completion.
+ui_out -until-grep '"fg": "red", "bg": "default", "underline": "default", "attributes": \[\] }, "contents": "fn"'

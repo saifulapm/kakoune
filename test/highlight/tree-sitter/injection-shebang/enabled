@@ -1,0 +1,3 @@
+#!/bin/sh
+# Skip unless the helix runtime provides what this test needs.
+exec "$(dirname "$0")/../grammars-available" markdown python

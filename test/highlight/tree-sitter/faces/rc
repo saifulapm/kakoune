@@ -1,0 +1,7 @@
+source "%val{runtime}/rc/tools/tree-sitter.kak"
+set-option buffer filetype rust
+add-highlighter buffer/tree-sitter tree-sitter
+tree-sitter-enable
+# Distinctive color so the draw assertion is independent of any color scheme:
+# "fn" is captured as @keyword.function -> face ts_keyword_function.
+set-face global ts_keyword_function red

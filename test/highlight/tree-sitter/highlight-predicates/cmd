@@ -1,0 +1,1 @@
+: tree-sitter-highlight python 'foo = self'<ret>%: set-register dquote %opt{tree_sitter_markup}<ret>R

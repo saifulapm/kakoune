@@ -1,0 +1,5 @@
+ui_out '{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }'
+# The buffer starts as filetype c where "fn" gets no keyword capture. After
+# cmd switches the filetype to rust, the highlighter must drop the c tree and
+# re-parse with the rust grammar, painting "fn" with ts_keyword_function (red).
+ui_out -until-grep '"fg": "red", "bg": "default", "underline": "default", "attributes": \[\] }, "contents": "fn"'

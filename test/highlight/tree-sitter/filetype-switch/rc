@@ -1,0 +1,7 @@
+source "%val{runtime}/rc/tools/tree-sitter.kak"
+set-option buffer filetype c
+add-highlighter buffer/tree-sitter tree-sitter
+tree-sitter-enable
+# Distinctive color, independent of any color scheme. In C "fn" is never a
+# keyword; only a re-parse with the rust grammar can produce this capture.
+set-face global ts_keyword_function red

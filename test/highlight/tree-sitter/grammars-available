@@ -1,0 +1,45 @@
+#!/bin/sh
+# Probe for the helix runtime files a tree-sitter test needs, so the test
+# harness skips the test (via each test dir's `enabled` script) instead of
+# hard-failing when no helix runtime is installed.
+#
+# Usage: grammars-available <grammar|runtime-relative-path>...
+#   A plain grammar name requires grammars/<name>.so and
+#   queries/<name>/highlights.scm; an argument containing a slash is checked
+#   verbatim relative to the runtime root (e.g. queries/c/textobjects.scm).
+#
+# Candidate runtime directories mirror helix_runtime_directory() and
+# helix_config_directory() in src/main.cc.
+
+candidates="${XDG_CONFIG_HOME:-$HOME/.config}/helix/runtime"
+if [ -n "$HELIX_RUNTIME" ]; then
+    candidates="$candidates $HELIX_RUNTIME"
+else
+    candidates="$candidates \
+        /opt/homebrew/opt/helix/libexec/runtime \
+        /usr/lib/helix/runtime \
+        /usr/share/helix/runtime \
+        /usr/local/lib/helix/runtime \
+        /usr/local/share/helix/runtime \
+        /opt/helix/runtime"
+fi
+
+runtime_has() {
+    for dir in $candidates; do
+        [ -f "$dir/$1" ] && return 0
+    done
+    return 1
+}
+
+for arg in "$@"; do
+    case "$arg" in
+    */*)
+        runtime_has "$arg" || exit 1
+        ;;
+    *)
+        runtime_has "grammars/$arg.so" || exit 1
+        runtime_has "queries/$arg/highlights.scm" || exit 1
+        ;;
+    esac
+done
+exit 0
