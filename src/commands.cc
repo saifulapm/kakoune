@@ -2803,12 +2803,17 @@ const CommandDesc require_module_cmd = {
 const CommandDesc tree_sitter_enable_cmd = {
     "tree-sitter-enable",
     nullptr,
-    "tree-sitter-enable: enable tree-sitter highlighting for the current buffer",
-    no_params,
+    "tree-sitter-enable [-lazy]: enable tree-sitter highlighting for the current buffer\n"
+    "with -lazy, defer the initial parse to the background worker instead of\n"
+    "parsing synchronously (tree-* commands need a redraw first in that case)",
+    ParameterDesc{
+        { { "lazy", { {}, "defer the initial parse to the background worker" } } },
+        ParameterDesc::Flags::None, 0, 0
+    },
     CommandFlags::None,
     CommandHelper{},
     CommandCompleter{},
-    [](const ParametersParser&, Context& context, const ShellContext&)
+    [](const ParametersParser& parser, Context& context, const ShellContext&)
     {
         auto& buffer = context.buffer();
         auto filetype = context.options()["filetype"].get<String>();
@@ -2823,7 +2828,8 @@ const CommandDesc tree_sitter_enable_cmd = {
         if (not config)
             throw runtime_error(format("no tree-sitter grammar for '{}'", language));
 
-        if (not has_syntax_tree(buffer))
+        set_tree_sitter_disabled(buffer, false);
+        if (not parser.get_switch("lazy") and not has_syntax_tree(buffer))
             create_syntax_tree(buffer, config);
     }
 };
@@ -2839,6 +2845,10 @@ const CommandDesc tree_sitter_disable_cmd = {
     [](const ParametersParser&, Context& context, const ShellContext&)
     {
         auto& buffer = context.buffer();
+        // The flag keeps sync_async_host_tree from recreating the trees on
+        // the next redraw (the window highlighter stays attached); without it
+        // this command would be a no-op.
+        set_tree_sitter_disabled(buffer, true);
         if (has_syntax_tree(buffer))
             remove_syntax_tree(buffer);
         if (has_async_syntax_tree(buffer))
@@ -2889,15 +2899,16 @@ static Selection node_to_selection(const Buffer& buffer, TSNode node)
     BufferCoord begin{LineCount{(int)start_pt.row}, ByteCount{(int)start_pt.column}};
     BufferCoord end{LineCount{(int)end_pt.row}, ByteCount{(int)end_pt.column}};
 
+    // Kakoune selections are inclusive on both ends, tree-sitter end is
+    // exclusive: convert before clamping, so a node ending at the buffer
+    // end (exclusive end == end_coord) is not shortened twice.
+    if (end > begin and buffer.is_valid(end))
+        end = buffer.char_prev(end);
+
     // Clamp to buffer bounds — tree-sitter ERROR nodes can have unexpected coordinates
     auto back = buffer.back_coord();
     begin = std::min(begin, back);
     end = std::min(end, back);
-
-    // Kakoune selections are inclusive on both ends,
-    // tree-sitter end is exclusive, so back up one char
-    if (end > begin)
-        end = buffer.char_prev(end);
 
     return Selection{begin, end};
 }
@@ -3353,6 +3364,7 @@ const CommandDesc tree_select_node_cmd = {
 struct ExpandHistoryEntry
 {
     String buffer_name;
+    size_t timestamp;
     Vector<Selection, MemoryDomain::Selections> selections;
 };
 static Vector<ExpandHistoryEntry> expand_history;
@@ -3377,7 +3389,7 @@ const CommandDesc tree_expand_cmd = {
         Vector<Selection, MemoryDomain::Selections> saved;
         for (auto& sel : selections)
             saved.push_back(sel);
-        expand_history.push_back({buffer.name(), std::move(saved)});
+        expand_history.push_back({buffer.name(), buffer.timestamp(), std::move(saved)});
 
         // Cap history depth
         if (expand_history.size() > 32)
@@ -3425,18 +3437,27 @@ const CommandDesc tree_shrink_cmd = {
         if (expand_history.empty())
             throw runtime_error("no tree-expand history to shrink back to");
 
-        if (expand_history.back().buffer_name != context.buffer().name())
+        auto& buffer = context.buffer();
+        if (expand_history.back().buffer_name != buffer.name() or
+            expand_history.back().timestamp > buffer.timestamp())
         {
             expand_history.clear();
             throw runtime_error("expand history invalid — buffer changed");
         }
 
-        auto& selections = context.selections();
-        auto restored = std::move(expand_history.back().selections);
+        auto entry = std::move(expand_history.back());
         expand_history.pop_back();
 
-        if (not restored.empty())
-            selections.set(std::move(restored), 0);
+        if (not entry.selections.empty())
+        {
+            // Build the list with the timestamp the selections were saved
+            // at, so update() remaps them through any buffer changes made
+            // since the corresponding tree-expand.
+            SelectionList restored{buffer, std::move(entry.selections), entry.timestamp};
+            restored.update();
+            restored.set_main_index(0);
+            context.selections_write_only() = std::move(restored);
+        }
     }
 };
 
@@ -3572,6 +3593,8 @@ struct IndentAccum
     int outdent = 0;
     int outdent_always = 0;
     String align;  // non-empty = alignment string (overrides regular indent)
+    uint32_t align_row = 0;  // @anchor line the alignment was computed from
+    uint32_t align_col = 0;  // @anchor column on that line (pre-edit)
 
     void add_capture(IndentCaptureType type)
     {
@@ -3598,10 +3621,14 @@ struct IndentAccum
         }
     }
 
-    void set_align(String s)
+    void set_align(String s, uint32_t anchor_row, uint32_t anchor_col)
     {
         if (align.empty())
+        {
             align = std::move(s);
+            align_row = anchor_row;
+            align_col = anchor_col;
+        }
     }
 
     // Matching Helix indent.rs:475-488
@@ -3613,6 +3640,8 @@ struct IndentAccum
         if (not other.align.empty())
         {
             align = other.align;
+            align_row = other.align_row;
+            align_col = other.align_col;
             return;
         }
         indent += other.indent;
@@ -3631,6 +3660,8 @@ struct IndentResult
 {
     int level = 0;
     String align;  // non-empty = use alignment + level additional indent
+    uint32_t align_row = 0;  // @anchor line the alignment came from
+    uint32_t align_col = 0;  // @anchor column on that line (pre-edit)
 };
 
 // Get effective start line, adjusted for new-line insertion
@@ -3754,6 +3785,8 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
         IndentCaptureType type;
         IndentScope scope;
         String align_str;  // only used for Align type
+        uint32_t anchor_row = 0;  // only used for Align type
+        uint32_t anchor_col = 0;  // only used for Align type
     };
     HashMap<uintptr_t, Vector<IndentCapture>> indent_captures;
 
@@ -3855,7 +3888,8 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
 
                 uintptr_t node_id = (uintptr_t)cap.node.id;
                 // Store alignment string directly in indent_captures
-                IndentCapture ic{IndentCaptureType::Align, scope, std::move(align_str)};
+                IndentCapture ic{IndentCaptureType::Align, scope, std::move(align_str),
+                                 anchor_row, anchor_col};
                 indent_captures[node_id].push_back(std::move(ic));
                 continue;
             }
@@ -3988,12 +4022,15 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
                     {
                     case IndentScope::All:
                         if (is_first)
-                            indent_for_line.set_align(def.align_str);
+                            indent_for_line.set_align(def.align_str,
+                                                      def.anchor_row, def.anchor_col);
                         else
-                            indent_for_line_below.set_align(def.align_str);
+                            indent_for_line_below.set_align(def.align_str,
+                                                            def.anchor_row, def.anchor_col);
                         break;
                     case IndentScope::Tail:
-                        indent_for_line_below.set_align(def.align_str);
+                        indent_for_line_below.set_align(def.align_str,
+                                                        def.anchor_row, def.anchor_col);
                         break;
                     }
                 }
@@ -4059,7 +4096,7 @@ static IndentResult compute_indent_for_line(const SyntaxTree& syntax_tree,
         node = parent;
     }
 
-    return {result.net(), std::move(result.align)};
+    return {result.net(), std::move(result.align), result.align_row, result.align_col};
 }
 
 const CommandDesc tree_indent_cmd = {
@@ -4098,18 +4135,43 @@ const CommandDesc tree_indent_cmd = {
             last_line = sel.max().line;
         }
 
-        // Apply edits bottom-to-top
+        // Compute all indents first, against the pristine buffer and the
+        // tree parsed at command start, so no line reads state mutated by
+        // another line's edit.
+        Vector<IndentResult> results;
+        results.reserve(lines_to_indent.size());
+        for (auto line : lines_to_indent)
+            results.push_back(compute_indent_for_line(syntax_tree, buffer, line, false));
+
+        // Apply edits top-to-bottom, tracking how much each line's leading
+        // whitespace shifted so that @align anchors on already-reindented
+        // lines are re-read at their post-edit columns.
         ScopedEdition edition(context);
         ScopedSelectionEdition selection_edition{context};
+        HashMap<uint32_t, int> line_shift;
 
-        for (int i = (int)lines_to_indent.size() - 1; i >= 0; --i)
+        for (int i = 0; i < (int)lines_to_indent.size(); ++i)
         {
             auto line = lines_to_indent[i];
-            auto result = compute_indent_for_line(syntax_tree, buffer, line, false);
+            auto& result = results[i];
             String indent_str;
             if (not result.align.empty())
             {
                 indent_str = std::move(result.align);
+                auto shift = line_shift.find(result.align_row);
+                if (shift != line_shift.end())
+                {
+                    // The anchor line was reindented earlier in this run;
+                    // rebuild the alignment from its current content.
+                    int col = (int)result.align_col + shift->value;
+                    indent_str.clear();
+                    if ((int)result.align_row < (int)buffer.line_count())
+                    {
+                        StringView anchor_line = buffer[LineCount{(int)result.align_row}];
+                        for (int c = 0; c < col and c < (int)anchor_line.length(); ++c)
+                            indent_str += (anchor_line[c] == '\t') ? '\t' : ' ';
+                    }
+                }
                 int extra = std::max(0, result.level) * (int)indent_width;
                 for (int s = 0; s < extra; ++s)
                     indent_str += ' ';
@@ -4127,6 +4189,7 @@ const CommandDesc tree_indent_cmd = {
                 ws_end++;
 
             buffer.replace(line, {line, ws_end}, indent_str);
+            line_shift[(uint32_t)(int)line] = (int)indent_str.length() - (int)ws_end;
         }
     }
 };
@@ -4504,10 +4567,12 @@ const CommandDesc tree_query_cursor_cmd = {
         bool in_comment = false;
 
         // Check root language highlight query
-        auto check_highlights = [&](TSQuery* hq, TSNode root)
+        auto check_highlights = [&](const LanguageConfig* cfg, TSNode root)
         {
+            TSQuery* hq = cfg->highlight_query();
             if (not hq)
                 return;
+            const auto& hl_preds = cfg->highlight_predicates();
             QueryCursorGuard qcursor;
             ts_query_cursor_set_byte_range(qcursor, cursor_byte, cursor_byte + 1);
             ts_query_cursor_set_match_limit(qcursor, 64);
@@ -4516,6 +4581,12 @@ const CommandDesc tree_query_cursor_cmd = {
             TSQueryMatch match;
             while (ts_query_cursor_next_match(qcursor, &match))
             {
+                // Filter by predicates
+                if (match.pattern_index < (uint32_t)hl_preds.size()
+                    and not hl_preds[(int)match.pattern_index].empty()
+                    and not predicates_match(hl_preds[(int)match.pattern_index], match, buffer))
+                    continue;
+
                 for (uint16_t c = 0; c < match.capture_count; ++c)
                 {
                     uint32_t len = 0;
@@ -4536,8 +4607,7 @@ const CommandDesc tree_query_cursor_cmd = {
 
         auto* config = syntax_tree.config();
         if (config)
-            check_highlights(config->highlight_query(),
-                             ts_tree_root_node(syntax_tree.tree()));
+            check_highlights(config, ts_tree_root_node(syntax_tree.tree()));
 
         // Also check injection layers
         for (auto& layer : layers)
@@ -4554,8 +4624,7 @@ const CommandDesc tree_query_cursor_cmd = {
                 }
             }
             if (cursor_in_layer)
-                check_highlights(layer.config->highlight_query(),
-                                 ts_tree_root_node(layer.tree));
+                check_highlights(layer.config, ts_tree_root_node(layer.tree));
         }
 
         // Set options
@@ -4649,6 +4718,7 @@ const CommandDesc tree_sitter_highlight_cmd = {
         Vector<Capture> captures;
 
         TSQuery* hq = config->highlight_query();
+        const auto& hl_preds = config->highlight_predicates();
 
         QueryCursorGuard qcursor;
         ts_query_cursor_set_match_limit(qcursor, 4096);
@@ -4658,6 +4728,12 @@ const CommandDesc tree_sitter_highlight_cmd = {
         uint32_t capture_index;
         while (ts_query_cursor_next_capture(qcursor, &match, &capture_index))
         {
+            // Filter by predicates (evaluated against the standalone text)
+            if (match.pattern_index < (uint32_t)hl_preds.size()
+                and not hl_preds[(int)match.pattern_index].empty()
+                and not predicates_match(hl_preds[(int)match.pattern_index], match, text))
+                continue;
+
             const TSQueryCapture& cap = match.captures[capture_index];
             uint32_t start = ts_node_start_byte(cap.node);
             uint32_t end = ts_node_end_byte(cap.node);
@@ -4996,11 +5072,41 @@ const CommandDesc tree_join_cmd = {
             throw runtime_error("node is already single-line");
 
         uint32_t child_count = ts_node_child_count(container);
+        if (child_count < 2)
+            throw runtime_error("node has no children to join");
 
         bool space_in = match.rule ? match.rule->space_in_brackets : false;
-        bool is_statement = match.rule and
-            match.rule->preset == SJPreset::Statement;
         StringView force_insert = match.rule ? match.rule->force_insert : "";
+
+        // Extract a node's text collapsed onto one line — the node may
+        // span multiple lines (e.g. a multi-line start_tag)
+        auto extract_joined = [&buffer](TSNode n) {
+            TSPoint cs = ts_node_start_point(n);
+            TSPoint ce = ts_node_end_point(n);
+
+            String text;
+            for (uint32_t row = cs.row; row <= ce.row; ++row)
+            {
+                StringView line = buffer[LineCount{(int)row}];
+                uint32_t col_start = (row == cs.row) ? cs.column : 0;
+                uint32_t col_end = (row == ce.row) ? ce.column : (uint32_t)(int)line.length();
+                if (col_end > 0 and line[(int)(col_end - 1)] == '\n')
+                    col_end--;
+
+                if (row != cs.row)
+                {
+                    while (col_start < col_end and
+                           (line[(int)col_start] == ' ' or line[(int)col_start] == '\t'))
+                        col_start++;
+                }
+
+                if (not text.empty() and col_start < col_end)
+                    text += ' ';
+                text += line.substr(ByteCount{(int)col_start},
+                                    ByteCount{(int)(col_end - col_start)});
+            }
+            return text;
+        };
 
         // Build joined text
         String result;
@@ -5009,11 +5115,7 @@ const CommandDesc tree_join_cmd = {
 
         // Opening bracket
         {
-            TSPoint s = ts_node_start_point(first_child);
-            TSPoint e = ts_node_end_point(first_child);
-            StringView line = buffer[LineCount{(int)s.row}];
-            result += line.substr(ByteCount{(int)s.column},
-                                  ByteCount{(int)(e.column - s.column)});
+            result += extract_joined(first_child);
             if (space_in)
                 result += ' ';
         }
@@ -5056,30 +5158,7 @@ const CommandDesc tree_join_cmd = {
             }
 
             // Extract child text (may span multiple lines — collapse)
-            TSPoint cs = ts_node_start_point(child);
-            TSPoint ce = ts_node_end_point(child);
-
-            String child_text;
-            for (uint32_t row = cs.row; row <= ce.row; ++row)
-            {
-                StringView line = buffer[LineCount{(int)row}];
-                uint32_t col_start = (row == cs.row) ? cs.column : 0;
-                uint32_t col_end = (row == ce.row) ? ce.column : (uint32_t)(int)line.length();
-                if (col_end > 0 and line[(int)(col_end - 1)] == '\n')
-                    col_end--;
-
-                if (row != cs.row)
-                {
-                    while (col_start < col_end and
-                           (line[(int)col_start] == ' ' or line[(int)col_start] == '\t'))
-                        col_start++;
-                }
-
-                if (not child_text.empty() and col_start < col_end)
-                    child_text += ' ';
-                child_text += line.substr(ByteCount{(int)col_start},
-                                          ByteCount{(int)(col_end - col_start)});
-            }
+            String child_text = extract_joined(child);
 
             if (child_text.empty())
                 continue;
@@ -5090,21 +5169,29 @@ const CommandDesc tree_join_cmd = {
 
             result += child_text;
 
-            // Add semicolons for statement preset if not already present
-            if (is_statement and not child_text.empty() and child_text.back() != ';')
+            // Append the rule's forced separator (e.g. ';' for statements,
+            // ',' for terraform objects) if not already present
+            if (not force_insert.empty() and not child_text.empty()
+                and child_text.back() != force_insert.back())
             {
-                // Check if next non-whitespace child is the closing bracket
-                bool at_end = true;
+                // Only between items: another named child must follow, with
+                // no explicit separator token already in between
+                bool needs_sep = false;
                 for (uint32_t j = i + 1; j + 1 < child_count; ++j)
                 {
-                    if (ts_node_is_named(ts_node_child(container, j)))
+                    TSNode next = ts_node_child(container, j);
+                    const char* next_type = ts_node_type(next);
+                    if (not ts_node_is_named(next) and next_type and
+                        (StringView{next_type} == "," or StringView{next_type} == ";"))
+                        break;
+                    if (ts_node_is_named(next))
                     {
-                        at_end = false;
+                        needs_sep = true;
                         break;
                     }
                 }
-                if (not at_end)
-                    result += ';';
+                if (needs_sep)
+                    result += force_insert;
             }
 
             need_space = false;
@@ -5114,11 +5201,7 @@ const CommandDesc tree_join_cmd = {
         {
             if (space_in and not result.empty() and result.back() != ' ')
                 result += ' ';
-            TSPoint s = ts_node_start_point(last_child);
-            TSPoint e = ts_node_end_point(last_child);
-            StringView line = buffer[LineCount{(int)s.row}];
-            result += line.substr(ByteCount{(int)s.column},
-                                  ByteCount{(int)(e.column - s.column)});
+            result += extract_joined(last_child);
         }
 
         BufferCoord begin{LineCount{(int)start.row}, ByteCount{(int)start.column}};
