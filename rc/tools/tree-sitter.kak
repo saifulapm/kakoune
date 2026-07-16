@@ -192,13 +192,24 @@ declare-option str tree_cursor_ancestors ""
 declare-option str tree_cursor_in_string "false"
 declare-option str tree_cursor_in_comment "false"
 
-# Auto-enable tree-sitter highlighting on filetype change
+# Auto-enable tree-sitter highlighting on filetype change; when the new
+# filetype has no grammar, drop the buffer's tree-sitter state entirely so
+# trees/workers from a previous filetype are not retained.
 hook -group tree-sitter-auto global WinSetOption filetype=.+ %{
-    try %{ add-highlighter window/tree-sitter tree-sitter }
+    try %{
+        # -lazy: don't block file open on a synchronous parse; the background
+        # worker picks it up on the first redraw.
+        tree-sitter-enable -lazy
+        try %{ add-highlighter window/tree-sitter tree-sitter }
+    } catch %{
+        try %{ tree-sitter-disable }
+        try %{ remove-highlighter window/tree-sitter }
+    }
 }
 
 hook -group tree-sitter-auto global WinSetOption filetype= %{
     try %{ remove-highlighter window/tree-sitter }
+    try %{ tree-sitter-disable }
 }
 
 # Catch windows where filetype was set before this script loaded (autoload order)
@@ -214,6 +225,7 @@ hook -group tree-sitter-late-init global WinDisplay .* %{
 
 # Auto-indent on newline using tree-sitter
 hook -group tree-sitter-indent global WinSetOption filetype=.+ %{
+    remove-hooks window tree-sitter-indent
     hook -group tree-sitter-indent window InsertChar \n %{
         try %{ tree-indent-newline }
     }
