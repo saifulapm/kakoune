@@ -24,6 +24,9 @@ struct InjectionPattern
     String language;                // from #set! injection.language "..."
     bool combined = false;          // from #set! injection.combined
     bool include_children = false;  // from #set! injection.include-children
+    // from #set! injection.include-unnamed-children: only the content node's
+    // NAMED children are excluded from the injected ranges
+    bool include_unnamed_children = false;
 };
 
 enum class PredicateType { Eq, NotEq, Match, NotMatch, AnyOf, NotAnyOf,
@@ -39,6 +42,10 @@ struct QueryPredicate
     Optional<uint32_t> capture_id2; // second capture (capture-vs-capture Eq/NotEq)
     Vector<String> values;          // string set (AnyOf/NotAnyOf)
     Optional<Regex> regex;          // compiled regex (Match/NotMatch)
+    // true: the predicate must hold for ALL nodes captured under capture_id
+    // (#eq?/#match?); false: at least one node suffices (#any-eq?/#any-match?,
+    // #any-of?). Mirrors tree-house's TextPredicate::match_all.
+    bool match_all = true;
 };
 
 using PatternPredicates = Vector<Vector<QueryPredicate>>;
@@ -48,6 +55,11 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
                       const TSQueryMatch& match,
                       const Buffer& buffer,
                       Optional<uint32_t> new_line_byte_pos = {});
+// Standalone-text variant for queries run outside any buffer
+// (e.g. tree-sitter-highlight): node byte offsets index into `text`.
+bool predicates_match(const Vector<QueryPredicate>& predicates,
+                      const TSQueryMatch& match,
+                      StringView text);
 
 class LanguageConfig
 {
@@ -70,6 +82,8 @@ public:
     const Vector<InjectionPattern, MemoryDomain::Highlight>& injection_patterns() const { return m_injection_patterns; }
     uint32_t injection_content_capture() const { return m_injection_content_capture; }
     uint32_t injection_language_capture() const { return m_injection_language_capture; }
+    uint32_t injection_shebang_capture() const { return m_injection_shebang_capture; }
+    uint32_t injection_filename_capture() const { return m_injection_filename_capture; }
 
     TSQuery* textobject_query() const { return m_textobject_query; }
     TSQuery* indent_query() const { return m_indent_query; }
@@ -96,6 +110,8 @@ private:
     Vector<InjectionPattern, MemoryDomain::Highlight> m_injection_patterns;
     uint32_t m_injection_content_capture = UINT32_MAX;
     uint32_t m_injection_language_capture = UINT32_MAX;
+    uint32_t m_injection_shebang_capture = UINT32_MAX;
+    uint32_t m_injection_filename_capture = UINT32_MAX;
 
     TSQuery* m_textobject_query = nullptr;
     TSQuery* m_indent_query = nullptr;
@@ -118,6 +134,19 @@ public:
     const LanguageConfig* get(StringView name);
 
     static StringView filetype_to_language(StringView filetype);
+
+    // True if name is safe to use as a grammar/query path component
+    // (conservative charset, no way to escape the grammars directory).
+    // Injection language names come straight from document text.
+    static bool is_valid_language_name(StringView name);
+
+    // Resolve a "#!/usr/bin/env python"-style shebang (first two lines of
+    // text) to a language name; empty string if no shebang is found.
+    static String language_for_shebang(StringView text);
+
+    // Resolve a filename to a language name via its extension (or basename
+    // for extension-less files); empty string if nothing matches.
+    static String language_for_filename(StringView filename);
 
     const String& helix_runtime_dir() const { return m_helix_runtime_dir; }
     const String& helix_config_dir() const { return m_helix_config_dir; }

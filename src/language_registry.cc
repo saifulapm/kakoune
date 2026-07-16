@@ -49,6 +49,8 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
       m_injection_patterns(std::move(other.m_injection_patterns)),
       m_injection_content_capture(other.m_injection_content_capture),
       m_injection_language_capture(other.m_injection_language_capture),
+      m_injection_shebang_capture(other.m_injection_shebang_capture),
+      m_injection_filename_capture(other.m_injection_filename_capture),
       m_textobject_query(other.m_textobject_query),
       m_indent_query(other.m_indent_query),
       m_locals_query(other.m_locals_query),
@@ -65,6 +67,8 @@ LanguageConfig::LanguageConfig(LanguageConfig&& other) noexcept
     other.m_injection_query = nullptr;
     other.m_injection_content_capture = UINT32_MAX;
     other.m_injection_language_capture = UINT32_MAX;
+    other.m_injection_shebang_capture = UINT32_MAX;
+    other.m_injection_filename_capture = UINT32_MAX;
     other.m_textobject_query = nullptr;
     other.m_indent_query = nullptr;
     other.m_locals_query = nullptr;
@@ -96,6 +100,8 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         m_injection_patterns = std::move(other.m_injection_patterns);
         m_injection_content_capture = other.m_injection_content_capture;
         m_injection_language_capture = other.m_injection_language_capture;
+        m_injection_shebang_capture = other.m_injection_shebang_capture;
+        m_injection_filename_capture = other.m_injection_filename_capture;
         m_textobject_query = other.m_textobject_query;
         m_indent_query = other.m_indent_query;
         m_locals_query = other.m_locals_query;
@@ -112,6 +118,8 @@ LanguageConfig& LanguageConfig::operator=(LanguageConfig&& other) noexcept
         other.m_injection_query = nullptr;
         other.m_injection_content_capture = UINT32_MAX;
         other.m_injection_language_capture = UINT32_MAX;
+        other.m_injection_shebang_capture = UINT32_MAX;
+        other.m_injection_filename_capture = UINT32_MAX;
         other.m_textobject_query = nullptr;
         other.m_indent_query = nullptr;
         other.m_locals_query = nullptr;
@@ -152,6 +160,8 @@ StringView LanguageRegistry::filetype_to_language(StringView filetype)
         return "tsx";
     if (filetype == "rs")
         return "rust";
+    if (filetype == "makefile")
+        return "make";
     if (filetype == "py")
         return "python";
     if (filetype == "rb")
@@ -165,6 +175,93 @@ StringView LanguageRegistry::filetype_to_language(StringView filetype)
     if (filetype == "racket")
         return "scheme";
     return filetype;
+}
+
+bool LanguageRegistry::is_valid_language_name(StringView name)
+{
+    // Language names can come straight from document text (injection
+    // markers); only accept plain basenames so nothing that could escape
+    // the grammars/queries directories ever reaches path construction or
+    // dlopen(). '.' is needed for names like "markdown.inline" but cannot
+    // traverse without a '/' or '\'. The length cap keeps junk bounded.
+    if (name.empty() or name.length() > 64)
+        return false;
+    for (auto c : name)
+    {
+        if (not ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z')
+                 or (c >= '0' and c <= '9')
+                 or c == '_' or c == '+' or c == '-' or c == '.'))
+            return false;
+    }
+    return true;
+}
+
+static String to_lowercase_ascii(StringView str)
+{
+    String result{str};
+    for (auto& c : result)
+        if (c >= 'A' and c <= 'Z')
+            c = c - 'A' + 'a';
+    return result;
+}
+
+String LanguageRegistry::language_for_shebang(StringView text)
+{
+    // Mirrors tree-house's SHEBANG_REGEX (injections_query.rs): extract the
+    // interpreter name from a "#!/usr/bin/env python"-style line. The final
+    // character class excludes digits and dots so "python3" → "python".
+    static const Regex shebang_regex{
+        R"(#!\s*(?:\S*[/\\](?:env\s+(?:-\S+\s+)*)?)?([^\s.\d]+))"};
+
+    // A shebang can be on the first or the second line (some languages allow
+    // whitespace/newlines before the actual content) — mirror tree-house and
+    // scan only the first two lines.
+    auto end = text.begin();
+    for (int newlines = 0; end != text.end(); ++end)
+    {
+        if (*end == '\n' and ++newlines == 2)
+            break;
+    }
+
+    MatchResults<const char*> res;
+    if (not regex_search(text.begin(), end, text.begin(), end, res, shebang_regex)
+        or not res[1].matched)
+        return {};
+
+    return String{filetype_to_language(
+        to_lowercase_ascii({res[1].first, res[1].second}))};
+}
+
+String LanguageRegistry::language_for_filename(StringView filename)
+{
+    // Strip directory components
+    StringView base = filename;
+    for (auto it = base.end(); it != base.begin(); --it)
+    {
+        if (*(it-1) == '/')
+        {
+            base = StringView{it, base.end()};
+            break;
+        }
+    }
+    if (base.empty())
+        return {};
+
+    // Use the extension when there is one ("build.py" → "py"), otherwise the
+    // basename itself ("Makefile" → "makefile").
+    StringView ext = base;
+    for (auto it = base.end(); it != base.begin(); --it)
+    {
+        if (*(it-1) == '.')
+        {
+            if (it == base.end() or it-1 == base.begin())
+                return {};  // trailing dot or dotfile without extension
+            ext = StringView{it, base.end()};
+            break;
+        }
+    }
+
+    return String{filetype_to_language(to_lowercase_ascii(ext))};
 }
 
 const LanguageConfig* LanguageRegistry::get(StringView name)
@@ -251,14 +348,17 @@ static void parse_single_predicate(const TSQuery* query,
         return {};
     };
 
-    if ((name == "eq?" or name == "not-eq?") and count >= 3)
+    if ((name == "eq?" or name == "not-eq?"
+         or name == "any-eq?" or name == "any-not-eq?") and count >= 3)
     {
         auto cap = get_capture(steps[1]);
         if (not cap)
             return;
 
         QueryPredicate pred;
-        pred.type = (name == "eq?") ? PredicateType::Eq : PredicateType::NotEq;
+        pred.type = (name == "eq?" or name == "any-eq?")
+            ? PredicateType::Eq : PredicateType::NotEq;
+        pred.match_all = (name == "eq?" or name == "not-eq?");
         pred.capture_id = *cap;
 
         // Second arg can be string or capture
@@ -271,7 +371,8 @@ static void parse_single_predicate(const TSQuery* query,
 
         out.push_back(std::move(pred));
     }
-    else if ((name == "match?" or name == "not-match?") and count >= 3)
+    else if ((name == "match?" or name == "not-match?"
+              or name == "any-match?" or name == "any-not-match?") and count >= 3)
     {
         auto cap = get_capture(steps[1]);
         auto pattern = get_string(steps[2]);
@@ -281,7 +382,9 @@ static void parse_single_predicate(const TSQuery* query,
         try
         {
             QueryPredicate pred;
-            pred.type = (name == "match?") ? PredicateType::Match : PredicateType::NotMatch;
+            pred.type = (name == "match?" or name == "any-match?")
+                ? PredicateType::Match : PredicateType::NotMatch;
+            pred.match_all = (name == "match?" or name == "not-match?");
             pred.capture_id = *cap;
             pred.regex = Regex{*pattern};
             out.push_back(std::move(pred));
@@ -300,6 +403,7 @@ static void parse_single_predicate(const TSQuery* query,
 
         QueryPredicate pred;
         pred.type = (name == "any-of?") ? PredicateType::AnyOf : PredicateType::NotAnyOf;
+        pred.match_all = false;  // tree-house: any node satisfying suffices
         pred.capture_id = *cap;
         for (uint32_t i = 2; i < count; ++i)
         {
@@ -349,8 +453,7 @@ static void parse_single_predicate(const TSQuery* query,
     // Helix/Neovim query predicates present in borrowed .scm files — safe to ignore
     else if (name != "set!" and name != "is?" and name != "is-not?"
              and name != "strip!" and name != "select-adjacent!"
-             and name != "lua-match?" and name != "gsub!"
-             and name != "any-not-eq?")
+             and name != "lua-match?" and name != "gsub!")
     {
         String name_s{name};
         if (logged_unknowns.find(name_s) == logged_unknowns.end())
@@ -394,10 +497,75 @@ PatternPredicates parse_query_predicates(const TSQuery* query)
     return result;
 }
 
-bool predicates_match(const Vector<QueryPredicate>& predicates,
-                      const TSQueryMatch& match,
-                      const Buffer& buffer,
-                      Optional<uint32_t> new_line_byte_pos)
+// Find the first node captured under capture_id in the match; false if none.
+static bool find_first_capture(const TSQueryMatch& match, uint32_t capture_id,
+                               TSNode& node)
+{
+    for (uint16_t c = 0; c < match.capture_count; ++c)
+    {
+        if (match.captures[c].index == capture_id)
+        {
+            node = match.captures[c].node;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Evaluate node_ok on every node captured under capture_id. With match_all
+// (#eq?/#match?) ALL nodes must satisfy it (vacuously true when the capture
+// is absent); otherwise (#any-eq?/#any-match?/#any-of?) at least one must
+// (vacuously false). Mirrors tree-house's TextPredicate::satisfied_helper.
+template<typename NodeOk>
+static bool nodes_satisfy(const TSQueryMatch& match, uint32_t capture_id,
+                          bool match_all, NodeOk&& node_ok)
+{
+    for (uint16_t c = 0; c < match.capture_count; ++c)
+    {
+        if (match.captures[c].index != capture_id)
+            continue;
+        if (node_ok(match.captures[c].node) != match_all)
+            return not match_all;
+    }
+    return match_all;
+}
+
+// Capture-vs-capture variant: zip the nodes captured under id1 and id2 in
+// match order and evaluate pair_ok on each pair. With match_all both lists
+// must additionally be consumed together (tree-house's consumed_all check).
+template<typename PairOk>
+static bool capture_pairs_satisfy(const TSQueryMatch& match,
+                                  uint32_t id1, uint32_t id2,
+                                  bool match_all, PairOk&& pair_ok)
+{
+    auto next = [&](uint32_t id, uint16_t& c) -> const TSQueryCapture* {
+        while (c < match.capture_count)
+        {
+            const TSQueryCapture* cap = &match.captures[c];
+            ++c;
+            if (cap->index == id)
+                return cap;
+        }
+        return nullptr;
+    };
+
+    uint16_t i = 0, j = 0;
+    while (true)
+    {
+        const TSQueryCapture* a = next(id1, i);
+        const TSQueryCapture* b = next(id2, j);
+        if (not a or not b)
+            return match_all ? a == b : false;
+        if (pair_ok(a->node, b->node) != match_all)
+            return not match_all;
+    }
+}
+
+template<typename GetText>
+static bool predicates_match_impl(const Vector<QueryPredicate>& predicates,
+                                  const TSQueryMatch& match,
+                                  GetText&& node_text,
+                                  Optional<uint32_t> new_line_byte_pos)
 {
     // Reused across predicates in this match to avoid repeated heap churn on
     // the rare multi-line path. Single-line captures don't touch these.
@@ -406,110 +574,67 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
 
     for (const auto& pred : predicates)
     {
-        // Find the captured node for this predicate
-        TSNode node = {};
-        bool found = false;
-        for (uint16_t c = 0; c < match.capture_count; ++c)
-        {
-            if (match.captures[c].index == pred.capture_id)
-            {
-                node = match.captures[c].node;
-                found = true;
-                break;
-            }
-        }
-        if (not found)
-            return false;
-
-        StringView text = node_text_view(node, buffer, scratch);
-
         switch (pred.type)
         {
         case PredicateType::Eq:
-            if (pred.capture_id2)
-            {
-                // capture-vs-capture: find second capture
-                bool found2 = false;
-                StringView text2;
-                for (uint16_t c = 0; c < match.capture_count; ++c)
-                {
-                    if (match.captures[c].index == *pred.capture_id2)
-                    {
-                        text2 = node_text_view(match.captures[c].node, buffer, scratch2);
-                        found2 = true;
-                        break;
-                    }
-                }
-                if (not found2 or text != text2)
-                    return false;
-            }
-            else if (text != pred.value)
-                return false;
-            break;
-
         case PredicateType::NotEq:
+        {
+            const bool want_eq = pred.type == PredicateType::Eq;
+            bool ok;
             if (pred.capture_id2)
-            {
-                bool found2 = false;
-                StringView text2;
-                for (uint16_t c = 0; c < match.capture_count; ++c)
-                {
-                    if (match.captures[c].index == *pred.capture_id2)
-                    {
-                        text2 = node_text_view(match.captures[c].node, buffer, scratch2);
-                        found2 = true;
-                        break;
-                    }
-                }
-                if (not found2)
-                    return false;  // missing capture -> conservative fail
-                if (text == text2)
-                    return false;
-            }
-            else if (text == pred.value)
+                ok = capture_pairs_satisfy(match, pred.capture_id, *pred.capture_id2,
+                                           pred.match_all, [&](TSNode a, TSNode b) {
+                    return (node_text(a, scratch)
+                            == node_text(b, scratch2)) == want_eq;
+                });
+            else
+                ok = nodes_satisfy(match, pred.capture_id, pred.match_all,
+                                   [&](TSNode n) {
+                    return (node_text(n, scratch) == pred.value) == want_eq;
+                });
+            if (not ok)
                 return false;
             break;
+        }
 
         case PredicateType::Match:
-            if (pred.regex and not regex_search(text.begin(), text.end(),
-                                                text.begin(), text.end(), *pred.regex))
-                return false;
-            break;
-
         case PredicateType::NotMatch:
-            if (pred.regex and regex_search(text.begin(), text.end(),
-                                            text.begin(), text.end(), *pred.regex))
+        {
+            if (not pred.regex)
+                break;
+            const bool want_match = pred.type == PredicateType::Match;
+            if (not nodes_satisfy(match, pred.capture_id, pred.match_all,
+                                  [&](TSNode n) {
+                    StringView text = node_text(n, scratch);
+                    return regex_search(text.begin(), text.end(),
+                                        text.begin(), text.end(),
+                                        *pred.regex) == want_match;
+                }))
                 return false;
             break;
+        }
 
         case PredicateType::AnyOf:
+        case PredicateType::NotAnyOf:
         {
-            bool in_set = false;
-            for (const auto& v : pred.values)
-            {
-                if (text == v)
-                {
-                    in_set = true;
-                    break;
-                }
-            }
-            if (not in_set)
+            const bool want_in_set = pred.type == PredicateType::AnyOf;
+            if (not nodes_satisfy(match, pred.capture_id, pred.match_all,
+                                  [&](TSNode n) {
+                    StringView text = node_text(n, scratch);
+                    return contains(pred.values, text) == want_in_set;
+                }))
                 return false;
             break;
         }
 
-        case PredicateType::NotAnyOf:
-        {
-            for (const auto& v : pred.values)
-            {
-                if (text == v)
-                    return false;
-            }
-            break;
-        }
-
+        // The predicates below are indent-query specific; Helix evaluates
+        // them on the first captured node only (indent.rs are_satisfied),
+        // with a missing capture failing conservatively — mirror that.
         case PredicateType::NotKindEq:
         {
+            TSNode node = {};
+            if (not find_first_capture(match, pred.capture_id, node))
+                return false;
             const char* kind = ts_node_type(node);
             if (kind and StringView{kind} == pred.value)
                 return false;
@@ -519,19 +644,10 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
         case PredicateType::SameLine:
         case PredicateType::NotSameLine:
         {
-            // Find second capture node
-            bool found2 = false;
+            TSNode node = {};
             TSNode node2 = {};
-            for (uint16_t c = 0; c < match.capture_count; ++c)
-            {
-                if (match.captures[c].index == *pred.capture_id2)
-                {
-                    node2 = match.captures[c].node;
-                    found2 = true;
-                    break;
-                }
-            }
-            if (not found2)
+            if (not find_first_capture(match, pred.capture_id, node)
+                or not find_first_capture(match, *pred.capture_id2, node2))
                 return false;  // missing capture -> conservative fail
 
             // Adjust line numbers for virtual newline insertion
@@ -555,6 +671,9 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
         case PredicateType::OneLine:
         case PredicateType::NotOneLine:
         {
+            TSNode node = {};
+            if (not find_first_capture(match, pred.capture_id, node))
+                return false;  // missing capture -> conservative fail
             // Adjust for virtual newline insertion (start uses >=, end uses >)
             uint32_t start_row = ts_node_start_point(node).row;
             uint32_t end_row = ts_node_end_point(node).row;
@@ -575,6 +694,34 @@ bool predicates_match(const Vector<QueryPredicate>& predicates,
         }
     }
     return true;
+}
+
+bool predicates_match(const Vector<QueryPredicate>& predicates,
+                      const TSQueryMatch& match,
+                      const Buffer& buffer,
+                      Optional<uint32_t> new_line_byte_pos)
+{
+    return predicates_match_impl(predicates, match,
+        [&buffer](TSNode node, String& scratch) {
+            return node_text_view(node, buffer, scratch);
+        }, new_line_byte_pos);
+}
+
+bool predicates_match(const Vector<QueryPredicate>& predicates,
+                      const TSQueryMatch& match,
+                      StringView text)
+{
+    return predicates_match_impl(predicates, match,
+        [text](TSNode node, String&) -> StringView {
+            uint32_t start = ts_node_start_byte(node);
+            uint32_t end = ts_node_end_byte(node);
+            const auto len = (uint32_t)(int)text.length();
+            if (end > len)
+                end = len;
+            if (start >= end)
+                return {};
+            return text.substr(ByteCount{(int)start}, ByteCount{(int)(end - start)});
+        }, {});
 }
 
 // Resolve "; inherits: lang1,lang2" directives by recursively loading
@@ -710,6 +857,14 @@ static StringView language_to_grammar(StringView name)
 
 const LanguageConfig* LanguageRegistry::load_language(StringView name)
 {
+    // Injection language names flow in from document text; reject anything
+    // that is not a plain basename before it is used to build a filesystem
+    // path for dlopen(). Deliberately not negatively cached: validation is
+    // cheap and caching every unique malformed name would let a hostile
+    // document grow m_languages without bound.
+    if (not is_valid_language_name(name))
+        return nullptr;
+
     // Resolve grammar name (language name may differ from grammar name)
     StringView grammar = language_to_grammar(name);
 
@@ -851,6 +1006,10 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                         config.m_injection_content_capture = i;
                     else if (cap == "injection.language")
                         config.m_injection_language_capture = i;
+                    else if (cap == "injection.shebang")
+                        config.m_injection_shebang_capture = i;
+                    else if (cap == "injection.filename")
+                        config.m_injection_filename_capture = i;
                 }
 
                 // Extract #set! predicates per pattern
@@ -900,6 +1059,11 @@ const LanguageConfig* LanguageRegistry::load_language(StringView name)
                             else if (key == "injection.include-children")
                             {
                                 config.m_injection_patterns[(int)p].include_children = true;
+                                s += 1;
+                            }
+                            else if (key == "injection.include-unnamed-children")
+                            {
+                                config.m_injection_patterns[(int)p].include_unnamed_children = true;
                                 s += 1;
                             }
                         }
