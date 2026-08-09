@@ -173,12 +173,12 @@ UnitTest test_data{[]{
         Data data;
         kak_assert(data.size() == 0);
         kak_assert(not data.is_long());
-        kak_assert(data.capacity() == 23);
+        kak_assert(data.capacity() == (sizeof(char *) == 8? 23: 11));
 
         // Should be SSO-ed.
         data.append("test", 4);
         kak_assert(data.size() == 4);
-        kak_assert(data.capacity() == 23);
+        kak_assert(data.capacity() == (sizeof(char *) == 8? 23: 11));
         kak_assert(not data.is_long());
         kak_assert(data.data() == StringView("test"));
     }
@@ -192,7 +192,7 @@ UnitTest test_data{[]{
         data.clear();
         kak_assert(data.size() == 0);
         kak_assert(not data.is_long());
-        kak_assert(data.capacity() == 23);
+        kak_assert(data.capacity() == (sizeof(char *) == 8? 23: 11));
     }
 }};
 
