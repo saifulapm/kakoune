@@ -88,7 +88,7 @@ evaluate-commands %sh{
            f16be f32be f64be
            complex32 complex64 complex128
            quaternion64 quaternion128 quaternion256
-           rune
+           byte rune
            string cstring
            rawptr
            typeid
