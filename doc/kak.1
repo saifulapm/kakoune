@@ -10,7 +10,7 @@
 .Op Fl d
 .Op Fl n
 .Op Fl ro
-.Op Fl c Ar session_id | Fl s Ar session_id
+.Op Fl c Ar session_id | Fl C Ar session_id | Fl s Ar session_id
 .Op Fl ui Ar ui_type
 .Op Fl e Ar command
 .Op Fl E Ar command
@@ -130,6 +130,11 @@ Send the commands written on the standard input to session
 .It Fl c Ar session_id
 Connect to the given session
 .Ar session_id .
+.
+.It Fl C Ar session_id
+Connect to the given session
+.Ar session_id 
+or create it if it does not exist.
 .
 .It Fl s Ar session_id
 Set the current session name to
