@@ -23,7 +23,7 @@
 #include <cstdlib>
 #include <errno.h>
 
-#if defined(__CYGWIN__)
+#if defined(__CYGWIN__) || defined(__APPLE__)
 #define vfork fork
 #endif
 
