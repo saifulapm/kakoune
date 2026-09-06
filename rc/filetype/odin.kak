@@ -38,6 +38,8 @@ add-highlighter shared/odin/inline_documentation region /// $ fill documentation
 add-highlighter shared/odin/line_comment region // $ fill comment
 
 add-highlighter shared/odin/code/ regex "(?<!\w)@\w+\b" 0:meta
+add-highlighter shared/odin/code/operator regex "(=|!|#|@|\$|^|\?|\+|-|\*|/|%|%%|&|\||~|&~|<<|>>|&&|\|\||\+=|-=|\*=|/=|%=|%%=|&=|\|=|~=|&~=|<<=|>>=|&&=|\|\|=|\+\+|--|---|==|!=|<|>|<=|>=|:|\.\.|\.\.=|\.\.<|\|\*\*)" 1:operator
+add-highlighter shared/odin/code/function_call regex "\b(\w*)\b\h*(?:\[[\w\s\.,]*\])?\h*\(" 1:function
 
 # Commands
 # ‾‾‾‾‾‾‾‾
