@@ -136,11 +136,12 @@ private:
 
     struct Insertion{
         NestedBool recording;
+        bool repeating;
         InsertMode mode;
         Vector<Key> keys;
         bool disable_hooks;
         int count;
-    } m_last_insert = { {}, InsertMode::Insert, {}, false, 1 };
+    } m_last_insert = { {}, false, InsertMode::Insert, {}, false, 1 };
 
     int m_handle_key_level = 0;
 

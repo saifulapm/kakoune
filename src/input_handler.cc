@@ -1601,11 +1601,13 @@ void InputHandler::repeat_last_insert()
         return;
 
     if (dynamic_cast<InputModes::Normal*>(&current_mode()) == nullptr or
-        m_last_insert.recording)
+        m_last_insert.recording or m_last_insert.repeating)
         throw runtime_error{"repeating last insert not available in this context"};
 
     ScopedSetBool disable_hooks(context().hooks_disabled(),
                                 m_last_insert.disable_hooks);
+    m_last_insert.repeating = true;
+    OnScopeEnd stop_repeating = [&] { m_last_insert.repeating = false; };
 
     push_mode(new InputModes::Insert(*this, m_last_insert.mode, m_last_insert.count, nullptr));
     for (auto& key : m_last_insert.keys)
