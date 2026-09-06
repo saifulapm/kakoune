@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Add upstream remote
         run: git remote add upstream https://github.com/mawww/kakoune.git
@@ -26,7 +26,7 @@ jobs:
 
       - name: Cherry-pick new upstream commits, one PR per commit
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           LAST_SYNCED=$(cat .github/upstream-sha)
