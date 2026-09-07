@@ -94,7 +94,7 @@ define-command -hidden gluon-indent-on-new-line %~
         try %{ execute-keys -draft k : gluon-trim-indent <ret> }
         # indent after lines ending with (open) braces, =, ->, condition, rec,
         # or in
-        try %{ execute-keys -draft \; k x <a-k> (\(|\{|\[|=|->|\b(?:then|else|rec|in))$ <ret> j <a-gt> }
+        try %, execute-keys -draft \; k x <a-k> (\(|\{|\[|=|->|\b(?:then|else|rec|in))$ <ret> j <a-gt> ,
         # deindent closing brace(s) when after cursor
         try %< execute-keys -draft x <a-k> ^\h*[})\]] <ret> gh / \})\]] <ret> m <a-S> 1<a-&> >
     _
