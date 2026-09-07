@@ -119,7 +119,7 @@ define-command ctags-disable-autoinfo -docstring "Disable automatically showing 
 
 declare-option -docstring "shell command used to generate tag files" \
     str ctagscmd "ctags -R --fields=+S"
-declare-option -docstring "path to the directory in which the tags file will be generated" str ctagspaths "."
+declare-option -docstring "path to the directories in which the tags file will be generated" str-list ctagspaths "."
 
 define-command ctags-generate -docstring 'Generate tag file asynchronously' %{
     echo -markup "{Information}launching tag generation in the background"
